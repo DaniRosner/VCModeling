@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Maccabee Ventures Fund II Scenario Model</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">Maccabee Ventures Fund II</p>
+          <h1>Portfolio Scenario Model</h1>
+        </div>
+        <div class="top-actions">
+          <select id="scenarioSelect" aria-label="Scenario"></select>
+          <button id="saveScenarioBtn" type="button">Save Scenario</button>
+          <button id="resetScenarioBtn" type="button" class="secondary">Reset</button>
+        </div>
+      </section>
+
+      <section class="assumptions" aria-label="Fund assumptions">
+        <label><span data-assumption-label="capitalCalled">Capital called</span><input id="capitalCalled" type="number" min="0" step="10000" /></label>
+        <label><span>Management fee %</span><input id="managementFeePct" type="number" value="2.5" disabled /></label>
+        <label><span>Carry %</span><input id="carryPct" type="number" value="20" disabled /></label>
+        <label><span data-assumption-label="safeMarkMode">SAFE / Note marks</span><select id="safeMarkMode"><option value="cost">Hold at cost</option><option value="cap">Mark to cap</option></select></label>
+      </section>
+
+      <section class="dashboard">
+        <div class="metric-group">
+          <h2>Current State</h2>
+          <div id="currentMetrics" class="metric-grid"></div>
+        </div>
+        <div class="metric-group proforma">
+          <h2>Pro Forma State</h2>
+          <div id="proFormaMetrics" class="metric-grid"></div>
+        </div>
+        <div id="deltaMetrics" class="delta-strip"></div>
+      </section>
+
+      <section class="workspace">
+        <aside class="company-list">
+          <div class="list-header">
+            <h2>Companies</h2>
+            <input id="companySearch" type="search" placeholder="Search" />
+          </div>
+          <div id="companyRows"></div>
+        </aside>
+
+        <section class="company-detail">
+          <div class="detail-header">
+            <div>
+              <p class="eyebrow" id="selectedIndustry">Portfolio company</p>
+              <h2 id="selectedName"></h2>
+            </div>
+            <div class="detail-stats" id="selectedStats"></div>
+          </div>
+
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="baseline" type="button">Baseline</button>
+            <button class="tab" data-tab="round" type="button">Future Round</button>
+            <button class="tab" data-tab="secondary" type="button">Secondary</button>
+            <button class="tab" data-tab="exit" type="button">Exit / Write-off</button>
+          </div>
+
+          <div id="baselinePanel" class="panel active"></div>
+          <div id="roundPanel" class="panel"></div>
+          <div id="secondaryPanel" class="panel"></div>
+          <div id="exitPanel" class="panel"></div>
+        </section>
+      </section>
+    </main>
+
+    <div id="setupGate" class="setup-gate hidden" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+      <div class="setup-modal">
+        <div class="setup-header">
+          <div>
+            <p class="eyebrow">Initial setup</p>
+            <h2 id="setupTitle">Review Missing Model Inputs</h2>
+          </div>
+          <span id="setupCount" class="setup-count"></span>
+        </div>
+        <p class="setup-copy">These fields were not explicitly sourced from the SOI or legal documents. Fill in anything you know; blanks will use default assumptions and be marked with an asterisk.</p>
+        <form id="setupForm">
+          <div id="setupFields" class="setup-fields"></div>
+          <div class="setup-actions">
+            <button type="submit">Proceed to Dashboard</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="./src/data.js"></script>
+    <script src="./src/model.js"></script>
+    <script src="./src/app.js"></script>
+  </body>
+</html>
