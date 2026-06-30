@@ -432,15 +432,28 @@
     return /estimated|not identified|not cleanly|not yet parsed|no .*provided|no .*doc|SOI supplies|SOI-only|remains estimated|pending\/not applied|provided separately|conflict|mismatch|states .*while/i.test(source);
   }
 
+  function companyMetricIsSourced(company, field) {
+    const sourcedMetrics = {
+      "anchor-forge": ["fdShares", "ownershipPct"],
+      "get-sonar": ["fdShares", "ownershipPct"],
+      joshu: ["fdShares", "ownershipPct"],
+      liquidonate: ["fdShares", "ownershipPct"],
+      "lira-ai": ["fdShares", "ownershipPct"],
+      materialspace: ["fdShares", "ownershipPct"],
+      spiral: ["fdShares", "ownershipPct"],
+      uplifted: ["fdShares", "ownershipPct"]
+    };
+    return sourcedMetrics[company.id]?.includes(field);
+  }
+
   function companyFieldAssumption(company, field) {
     if (companyFieldOrigins[`${company.id}.${field}`] === "user") return "";
+    if (companyMetricIsSourced(company, field)) return "";
     if (field === "fdShares") {
-      const sourced = new Set(["materialspace", "lira-ai", "uplifted"]);
-      if (!sourced.has(company.id)) return "Assumption";
+      return "Assumption";
     }
     if (field === "ownershipPct") {
-      const sourced = new Set(["materialspace", "lira-ai", "uplifted"]);
-      if (!sourced.has(company.id)) return "Assumption";
+      return "Assumption";
     }
     return "";
   }
