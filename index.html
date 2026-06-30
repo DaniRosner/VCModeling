@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Maccabee Ventures Fund II Scenario Model</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=master-table-ux-3" />
   </head>
   <body>
     <main id="app">
@@ -39,7 +39,12 @@
         <div id="deltaMetrics" class="delta-strip"></div>
       </section>
 
-      <section class="workspace">
+      <nav class="view-tabs" aria-label="Model views">
+        <button class="view-tab active" data-view="company" type="button">ModernView</button>
+        <button class="view-tab" data-view="master" type="button">Master Table</button>
+      </nav>
+
+      <section id="companyWorkspace" class="workspace">
         <aside class="company-list">
           <div class="list-header">
             <h2>Companies</h2>
@@ -70,6 +75,26 @@
           <div id="exitPanel" class="panel"></div>
         </section>
       </section>
+
+      <section id="masterWorkspace" class="master-workspace hidden">
+        <div class="table-toolbar">
+          <div>
+            <p class="eyebrow">Spreadsheet View</p>
+            <h2>Portfolio Master Table</h2>
+          </div>
+          <details class="column-menu">
+            <summary>Columns</summary>
+            <div id="columnPicker" class="column-picker"></div>
+          </details>
+        </div>
+        <div class="table-legend">
+          <span><i class="legend-edit"></i> Edited by user</span>
+          <span><i class="legend-affected"></i> Affected by edit</span>
+        </div>
+        <div class="master-table-wrap">
+          <table id="masterTable" class="master-table"></table>
+        </div>
+      </section>
     </main>
 
     <div id="setupGate" class="setup-gate hidden" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
@@ -91,8 +116,8 @@
       </div>
     </div>
 
-    <script src="./src/data.js"></script>
-    <script src="./src/model.js"></script>
-    <script src="./src/app.js"></script>
+    <script src="./src/data.js?v=master-table-ux-3"></script>
+    <script src="./src/model.js?v=master-table-ux-3"></script>
+    <script src="./src/app.js?v=master-table-ux-3"></script>
   </body>
 </html>

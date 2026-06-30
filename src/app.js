@@ -7,6 +7,7 @@
   const companyFieldOriginsKey = "maccabee-fund-ii-company-field-origins-v1";
   const setupInputsKey = "maccabee-fund-ii-required-inputs-v2";
   const setupCompleteKey = "maccabee-fund-ii-setup-complete-v3";
+  const masterColumnsKey = "maccabee-fund-ii-master-table-columns-v4";
 
   let assumptions = loadAssumptions();
   let assumptionOrigins = loadAssumptionOrigins();
@@ -16,6 +17,10 @@
   let activeScenarioId = scenarios[0].id;
   let selectedCompanyId = seed.companies[0].id;
   let activeTab = "baseline";
+  let activeView = "company";
+  let visibleMasterColumns = loadVisibleMasterColumns();
+  let editedMasterCells = new Set();
+  let masterInputTimers = new Map();
 
   const $ = (id) => document.getElementById(id);
 
@@ -51,6 +56,19 @@
 
   function saveCompanyFieldOrigins() {
     localStorage.setItem(companyFieldOriginsKey, JSON.stringify(companyFieldOrigins));
+  }
+
+  function defaultMasterColumnIds() {
+    return masterColumns().map((column) => column.id);
+  }
+
+  function loadVisibleMasterColumns() {
+    const saved = localStorage.getItem(masterColumnsKey);
+    return saved ? JSON.parse(saved) : defaultMasterColumnIds();
+  }
+
+  function saveVisibleMasterColumns() {
+    localStorage.setItem(masterColumnsKey, JSON.stringify(visibleMasterColumns));
   }
 
   function loadSetupInputs() {
@@ -116,6 +134,266 @@
     const scenario = activeScenario();
     scenario.events[companyId] ||= [];
     return scenario.events[companyId];
+  }
+
+  function companyCashFlows(company, state) {
+    const flows = [];
+    company.tranches.forEach((tranche) => {
+      if (tranche.cost > 0) flows.push({ date: tranche.date || seed.asOfDate, amount: -tranche.cost });
+    });
+    flows.push(...state.cashFlows);
+    if (state.value > 0) flows.push({ date: seed.asOfDate, amount: state.value });
+    return flows;
+  }
+
+  function companyIrr(company, state) {
+    return model.xirr(companyCashFlows(company, state));
+  }
+
+  function companyEnterpriseValue(company, state) {
+    if (state.ownership > 0) return state.value / state.ownership;
+    return state.totalShares * Math.max(model.weightedSharePrice(company), 0.000001);
+  }
+
+  function upsertValuationEvent(companyId, enterpriseValue) {
+    const events = eventsFor(companyId);
+    let event = events.find((item) => item.type === "valuation" && item.source === "master-table");
+    if (!event) {
+      event = {
+        id: `valuation-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        type: "valuation",
+        source: "master-table",
+        date: seed.asOfDate,
+        enterpriseValue: 0
+      };
+      events.push(event);
+    }
+    event.enterpriseValue = enterpriseValue;
+    saveScenarios();
+  }
+
+  function defaultMasterScenarioEvent(type) {
+    const defaults = {
+      round: {
+        type: "round",
+        source: "master-table-round",
+        date: "2026-12-01",
+        roundSize: 0,
+        preMoney: 0,
+        optionPoolPct: 0,
+        action: "none",
+        customCheck: 0,
+        secondary: {
+          enabled: false,
+          side: "sell",
+          mode: "pct",
+          amount: 0,
+          premiumDiscountPct: 0
+        }
+      },
+      secondary: {
+        type: "secondary",
+        source: "master-table-secondary",
+        date: "2027-06-01",
+        side: "sell",
+        mode: "pct",
+        amount: 0,
+        premiumDiscountPct: 0
+      },
+      exit: {
+        type: "exit",
+        source: "master-table-exit",
+        date: "2029-12-01",
+        exitType: "ma",
+        exitEV: 0
+      }
+    };
+    return model.clone(defaults[type]);
+  }
+
+  function masterScenarioEvent(companyId, type) {
+    const events = eventsFor(companyId);
+    const source = `master-table-${type}`;
+    return events.find((event) => event.type === type && event.source === source)
+      || events.find((event) => event.type === type)
+      || null;
+  }
+
+  function upsertMasterScenarioEvent(companyId, type) {
+    let event = masterScenarioEvent(companyId, type);
+    if (!event) {
+      event = defaultMasterScenarioEvent(type);
+      event.id = `${type}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      eventsFor(companyId).push(event);
+    }
+    if (type === "round") event.secondary ||= defaultMasterScenarioEvent("round").secondary;
+    return event;
+  }
+
+  function monthFromDate(date) {
+    return date ? String(date).slice(0, 7) : "";
+  }
+
+  function dateFromMonth(month, fallback) {
+    if (!month) return fallback || seed.asOfDate;
+    return `${month}-01`;
+  }
+
+  function nestedValue(object, path, fallback = "") {
+    return path.split(".").reduce((value, key) => value?.[key], object) ?? fallback;
+  }
+
+  function setNestedValue(object, path, value) {
+    const keys = path.split(".");
+    const last = keys.pop();
+    const target = keys.reduce((current, key) => {
+      current[key] ||= {};
+      return current[key];
+    }, object);
+    target[last] = value;
+  }
+
+  function scenarioFieldValue(company, column) {
+    const event = masterScenarioEvent(company.id, column.eventType);
+    if (!event) return "";
+    const value = nestedValue(event, column.eventKey, "");
+    return column.kind === "month" ? monthFromDate(value) : value;
+  }
+
+  function masterColumns() {
+    return [
+      { id: "company", group: "Company", label: "Company", kind: "text", fixed: true, value: ({ company }) => company.name },
+      { id: "proCompanyEv", group: "Scenario Levers", label: "Pro Forma Company Valuation", kind: "number", editable: true, target: "scenarioValuation", step: "100000", affected: true, value: ({ company, proState }) => companyEnterpriseValue(company, proState) },
+      { id: "roundDate", group: "Future Round", label: "Round Date", kind: "month", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "date", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("roundDate")) },
+      { id: "roundSize", group: "Future Round", label: "Round Size", kind: "number", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "roundSize", step: "50000", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("roundSize")) },
+      { id: "preMoney", group: "Future Round", label: "Pre-Money", kind: "number", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "preMoney", step: "100000", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("preMoney")) },
+      { id: "optionPoolPct", group: "Future Round", label: "Option Pool %", kind: "number", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "optionPoolPct", step: "1", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("optionPoolPct")) },
+      { id: "roundAction", group: "Future Round", label: "Fund Action", kind: "select", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "action", affected: true, choices: [["none", "Do nothing"], ["prorata", "Pro-rata"], ["custom", "Custom check"]], value: ({ company }) => scenarioFieldValue(company, masterColumnById("roundAction")) },
+      { id: "customCheck", group: "Future Round", label: "Custom Check", kind: "number", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "customCheck", step: "25000", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("customCheck")) },
+      { id: "roundSecondaryEnabled", group: "Round Secondary", label: "Include Secondary", kind: "select", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "secondary.enabled", affected: true, choices: [["false", "No"], ["true", "Yes"]], value: ({ company }) => scenarioFieldValue(company, masterColumnById("roundSecondaryEnabled")) },
+      { id: "roundSecondarySide", group: "Round Secondary", label: "Buy / Sell", kind: "select", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "secondary.side", affected: true, choices: [["sell", "Sell shares"], ["buy", "Buy shares"]], value: ({ company }) => scenarioFieldValue(company, masterColumnById("roundSecondarySide")) },
+      { id: "roundSecondaryMode", group: "Round Secondary", label: "Amount Mode", kind: "select", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "secondary.mode", affected: true, choices: [["pct", "% of position"], ["shares", "Shares"], ["dollars", "Dollars"]], value: ({ company }) => scenarioFieldValue(company, masterColumnById("roundSecondaryMode")) },
+      { id: "roundSecondaryAmount", group: "Round Secondary", label: "Amount", kind: "number", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "secondary.amount", step: "1", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("roundSecondaryAmount")) },
+      { id: "roundSecondaryDiscount", group: "Round Secondary", label: "Discount / Premium %", kind: "number", editable: true, target: "scenarioEvent", eventType: "round", eventKey: "secondary.premiumDiscountPct", step: "1", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("roundSecondaryDiscount")) },
+      { id: "secondaryDate", group: "Standalone Secondary", label: "Secondary Date", kind: "month", editable: true, target: "scenarioEvent", eventType: "secondary", eventKey: "date", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("secondaryDate")) },
+      { id: "secondarySide", group: "Standalone Secondary", label: "Buy / Sell", kind: "select", editable: true, target: "scenarioEvent", eventType: "secondary", eventKey: "side", affected: true, choices: [["sell", "Sell shares"], ["buy", "Buy shares"]], value: ({ company }) => scenarioFieldValue(company, masterColumnById("secondarySide")) },
+      { id: "secondaryMode", group: "Standalone Secondary", label: "Amount Mode", kind: "select", editable: true, target: "scenarioEvent", eventType: "secondary", eventKey: "mode", affected: true, choices: [["pct", "% of position"], ["shares", "Shares / dollars"]], value: ({ company }) => scenarioFieldValue(company, masterColumnById("secondaryMode")) },
+      { id: "secondaryAmount", group: "Standalone Secondary", label: "Amount", kind: "number", editable: true, target: "scenarioEvent", eventType: "secondary", eventKey: "amount", step: "1", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("secondaryAmount")) },
+      { id: "secondaryDiscount", group: "Standalone Secondary", label: "Discount / Premium %", kind: "number", editable: true, target: "scenarioEvent", eventType: "secondary", eventKey: "premiumDiscountPct", step: "1", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("secondaryDiscount")) },
+      { id: "exitDate", group: "Exit / Write-Off", label: "Exit Date", kind: "month", editable: true, target: "scenarioEvent", eventType: "exit", eventKey: "date", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("exitDate")) },
+      { id: "exitType", group: "Exit / Write-Off", label: "Exit Type", kind: "select", editable: true, target: "scenarioEvent", eventType: "exit", eventKey: "exitType", affected: true, choices: [["ma", "M&A"], ["ipo", "IPO"], ["writeoff", "Write-off"]], value: ({ company }) => scenarioFieldValue(company, masterColumnById("exitType")) },
+      { id: "exitEV", group: "Exit / Write-Off", label: "Exit EV", kind: "number", editable: true, target: "scenarioEvent", eventType: "exit", eventKey: "exitEV", step: "1000000", affected: true, value: ({ company }) => scenarioFieldValue(company, masterColumnById("exitEV")) },
+      { id: "proNav", group: "Impact", label: "Pro Forma NAV", kind: "money", affected: true, value: ({ proState }) => proState.value },
+      { id: "navDelta", group: "Impact", label: "NAV Delta", kind: "money", affected: true, value: ({ state, proState }) => proState.value - state.value },
+      { id: "proOwnership", group: "Impact", label: "Pro Forma Ownership", kind: "percent", affected: true, value: ({ proState }) => proState.ownership },
+      { id: "ownershipDelta", group: "Impact", label: "Ownership Delta", kind: "percent", affected: true, value: ({ state, proState }) => proState.ownership - state.ownership },
+      { id: "proMoic", group: "Impact", label: "Pro Forma MOIC", kind: "multiple", affected: true, value: ({ proState }) => (proState.value + proState.distributions) / Math.max(proState.cost, 1) },
+      { id: "moicDelta", group: "Impact", label: "MOIC Delta", kind: "multiple", affected: true, value: ({ state, proState }) => ((proState.value + proState.distributions) / Math.max(proState.cost, 1)) - ((state.value + state.distributions) / Math.max(state.cost, 1)) },
+      { id: "proIrr", group: "Impact", label: "Pro Forma IRR", kind: "irr", affected: true, value: ({ company, proState }) => companyIrr(company, proState) },
+      { id: "distributions", group: "Impact", label: "Distributions", kind: "money", affected: true, value: ({ proState }) => proState.distributions },
+      { id: "currentNav", group: "Current Position", label: "Current NAV", kind: "money", affected: true, value: ({ state }) => state.value },
+      { id: "currentCost", group: "Current Position", label: "Current Cost", kind: "money", affected: true, value: ({ state }) => state.cost },
+      { id: "currentMoic", group: "Current Position", label: "Current MOIC", kind: "multiple", affected: true, value: ({ state }) => (state.value + state.distributions) / Math.max(state.cost, 1) },
+      { id: "currentIrr", group: "Current Position", label: "Current IRR", kind: "irr", affected: true, value: ({ company, state }) => companyIrr(company, state) },
+      { id: "carryingValue", group: "Current Position", label: "Carrying Value", kind: "number", editable: true, target: "aggregate", aggregate: "all", key: "value", step: "1000", value: ({ company }) => aggregateTrancheValue(company, "all", "value") },
+      { id: "shares", group: "Ownership", label: "Shares Held", kind: "number", editable: true, target: "company", key: "shares", step: "1", value: ({ company }) => company.shares || 0 },
+      { id: "fdShares", group: "Ownership", label: "FD Shares", kind: "number", editable: true, target: "company", key: "fdShares", step: "1", value: ({ company }) => company.fdShares || 0 },
+      { id: "ownershipPct", group: "Ownership", label: "Current Ownership %", kind: "number", editable: true, target: "company", key: "ownershipPct", step: "0.01", value: ({ company }) => company.ownershipPct || 0 },
+      { id: "lastPrice", group: "Ownership", label: "Last Share Price", kind: "money", affected: true, value: ({ company }) => model.weightedSharePrice(company) },
+      { id: "pricedShares", group: "Priced Equity", label: "Priced Shares", kind: "number", editable: true, target: "aggregate", aggregate: "priced", key: "shares", step: "1", value: ({ company }) => aggregateTrancheValue(company, "priced", "shares") },
+      { id: "pricedCost", group: "Priced Equity", label: "Priced Cost", kind: "number", editable: true, target: "aggregate", aggregate: "priced", key: "cost", step: "1000", value: ({ company }) => aggregateTrancheValue(company, "priced", "cost") },
+      { id: "pricedValue", group: "Priced Equity", label: "Priced Value", kind: "number", editable: true, target: "aggregate", aggregate: "priced", key: "value", step: "1000", value: ({ company }) => aggregateTrancheValue(company, "priced", "value") },
+      { id: "pricedPps", group: "Priced Equity", label: "Priced PPS", kind: "number", editable: true, target: "aggregate", aggregate: "priced", key: "price", step: "0.0001", value: ({ company }) => weightedTrancheAverage(company, "priced", "price") },
+      { id: "liqMultiple", group: "Priced Equity", label: "Liq Pref Multiple", kind: "number", editable: true, target: "aggregate", aggregate: "priced", key: "liqMultiple", step: "0.1", value: ({ company }) => weightedTrancheAverage(company, "priced", "liqMultiple") },
+      { id: "seniority", group: "Priced Equity", label: "Seniority Rank", kind: "number", editable: true, target: "aggregate", aggregate: "priced", key: "seniority", step: "1", value: ({ company }) => weightedTrancheAverage(company, "priced", "seniority") },
+      { id: "participation", group: "Priced Equity", label: "Participation", kind: "select", editable: true, target: "aggregate", aggregate: "priced", key: "participation", choices: [["non", "Non-participating"], ["full", "Fully participating"], ["common", "Common/as-converted only"]], value: ({ company }) => commonTrancheChoice(company, "priced", "participation") },
+      { id: "safeType", group: "SAFEs / Notes", label: "SAFE Type", kind: "select", editable: true, target: "aggregate", aggregate: "safe", key: "type", choices: [["safe-post", "Post-money SAFE"], ["safe-pre", "Pre-money SAFE"], ["note", "Convertible note"]], value: ({ company }) => commonTrancheChoice(company, "safe", "type") },
+      { id: "safeCost", group: "SAFEs / Notes", label: "SAFE Cost", kind: "number", editable: true, target: "aggregate", aggregate: "safe", key: "cost", step: "1000", value: ({ company }) => aggregateTrancheValue(company, "safe", "cost") },
+      { id: "safeValue", group: "SAFEs / Notes", label: "SAFE Value", kind: "number", editable: true, target: "aggregate", aggregate: "safe", key: "value", step: "1000", value: ({ company }) => aggregateTrancheValue(company, "safe", "value") },
+      { id: "safeCap", group: "SAFEs / Notes", label: "SAFE Cap", kind: "number", editable: true, target: "aggregate", aggregate: "safe", key: "valuationCap", step: "100000", value: ({ company }) => weightedTrancheAverage(company, "safe", "valuationCap") },
+      { id: "safeDiscount", group: "SAFEs / Notes", label: "SAFE Discount %", kind: "number", editable: true, target: "aggregate", aggregate: "safe", key: "discountPct", step: "0.1", value: ({ company }) => weightedTrancheAverage(company, "safe", "discountPct") },
+      { id: "safeCashOut", group: "SAFEs / Notes", label: "SAFE Cash-Out", kind: "number", editable: true, target: "aggregate", aggregate: "safe", key: "cashOutMultiple", step: "0.1", value: ({ company }) => weightedTrancheAverage(company, "safe", "cashOutMultiple") },
+      { id: "safeProRata", group: "SAFEs / Notes", label: "SAFE Pro-Rata", kind: "select", editable: true, target: "aggregate", aggregate: "safe", key: "proRata", choices: [["false", "No"], ["true", "Yes"]], value: ({ company }) => commonTrancheChoice(company, "safe", "proRata") },
+      { id: "optionShares", group: "Options / Warrants", label: "Option/Warrant Shares", kind: "number", editable: true, target: "aggregate", aggregate: "option", key: "shares", step: "1", value: ({ company }) => aggregateTrancheValue(company, "option", "shares") },
+      { id: "optionStrike", group: "Options / Warrants", label: "Option/Warrant Strike", kind: "number", editable: true, target: "aggregate", aggregate: "option", key: "strikePrice", step: "0.0001", value: ({ company }) => weightedTrancheAverage(company, "option", "strikePrice") },
+      { id: "optionVested", group: "Options / Warrants", label: "Option/Warrant Vested %", kind: "number", editable: true, target: "aggregate", aggregate: "option", key: "vestedPct", step: "0.1", value: ({ company }) => weightedTrancheAverage(company, "option", "vestedPct") }
+    ];
+  }
+
+  function aggregateTypes(kind) {
+    const map = {
+      all: ["priced", "common", "safe-post", "safe-pre", "note", "option", "warrant"],
+      priced: ["priced"],
+      safe: ["safe-post", "safe-pre", "note"],
+      option: ["option", "warrant"]
+    };
+    return map[kind] || [kind];
+  }
+
+  function aggregateTranches(company, kind) {
+    const types = aggregateTypes(kind);
+    return company.tranches.filter((tranche) => types.includes(tranche.type));
+  }
+
+  function aggregateTrancheValue(company, kind, key) {
+    return aggregateTranches(company, kind).reduce((total, tranche) => total + (Number(tranche[key]) || 0), 0);
+  }
+
+  function weightedTrancheAverage(company, kind, key) {
+    const tranches = aggregateTranches(company, kind).filter((tranche) => Number.isFinite(Number(tranche[key])));
+    const weightTotal = tranches.reduce((total, tranche) => total + Math.max(Number(tranche.cost) || Number(tranche.value) || Number(tranche.shares) || 1, 1), 0);
+    if (!tranches.length || !weightTotal) return "";
+    return tranches.reduce((total, tranche) => {
+      const weight = Math.max(Number(tranche.cost) || Number(tranche.value) || Number(tranche.shares) || 1, 1);
+      return total + (Number(tranche[key]) || 0) * weight;
+    }, 0) / weightTotal;
+  }
+
+  function commonTrancheChoice(company, kind, key) {
+    const tranches = aggregateTranches(company, kind);
+    if (!tranches.length) return "";
+    const first = String(tranches[0][key] ?? "");
+    return tranches.every((tranche) => String(tranche[key] ?? "") === first) ? first : "";
+  }
+
+  function distributeAggregateValue(company, kind, key, value) {
+    const tranches = aggregateTranches(company, kind);
+    if (!tranches.length) return;
+    const currentTotal = aggregateTrancheValue(company, kind, key);
+    tranches.forEach((tranche, index) => {
+      if (currentTotal > 0) {
+        tranche[key] = value * ((Number(tranche[key]) || 0) / currentTotal);
+      } else {
+        tranche[key] = value / tranches.length;
+      }
+      if (index === tranches.length - 1 && key !== "price") {
+        const subtotal = tranches.slice(0, -1).reduce((total, item) => total + (Number(item[key]) || 0), 0);
+        tranche[key] = value - subtotal;
+      }
+    });
+  }
+
+  function setAggregateField(company, kind, key, value) {
+    const tranches = aggregateTranches(company, kind);
+    if (!tranches.length) return;
+    if (["shares", "cost", "value"].includes(key)) {
+      distributeAggregateValue(company, kind, key, value);
+    } else if (key === "proRata") {
+      tranches.forEach((tranche) => { tranche[key] = value === true || value === "true"; });
+    } else {
+      tranches.forEach((tranche) => { tranche[key] = value; });
+    }
+    tranches.forEach((tranche) => {
+      delete tranche.simplifyingAssumption;
+      tranche.source = `User input supplied in master table; original note: ${tranche.source || "unsourced"}`;
+    });
+    refreshCompanyTotals(company);
+  }
+
+  function refreshCompanyTotals(company) {
+    company.shares = aggregateTrancheValue(company, "all", "shares");
+    company.cost = aggregateTrancheValue(company, "all", "cost");
+    company.value = aggregateTrancheValue(company, "all", "value");
   }
 
   function money(value) {
@@ -470,6 +748,206 @@
     });
   }
 
+  function renderViewTabs() {
+    document.querySelectorAll("[data-view]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.view === activeView);
+    });
+    const companyHidden = activeView !== "company";
+    const masterHidden = activeView !== "master";
+    $("companyWorkspace").classList.toggle("hidden", companyHidden);
+    $("masterWorkspace").classList.toggle("hidden", masterHidden);
+    $("companyWorkspace").hidden = companyHidden;
+    $("masterWorkspace").hidden = masterHidden;
+    $("companyWorkspace").style.display = companyHidden ? "none" : "";
+    $("masterWorkspace").style.display = masterHidden ? "none" : "";
+  }
+
+  function visibleColumns() {
+    const columns = masterColumns();
+    const selected = new Set(visibleMasterColumns);
+    const visible = columns.filter((column) => column.fixed || selected.has(column.id));
+    return visible.length ? visible : columns.filter((column) => column.fixed);
+  }
+
+  function renderColumnPicker() {
+    const selected = new Set(visibleMasterColumns);
+    $("columnPicker").innerHTML = masterColumns().map((column) => `
+      <label>
+        <input type="checkbox" data-column-toggle="${escapeHtml(column.id)}" ${column.fixed ? "checked disabled" : selected.has(column.id) ? "checked" : ""} />
+        <span>${escapeHtml(column.label)}</span>
+      </label>
+    `).join("");
+  }
+
+  function tableCellKey(company, column) {
+    return `${company.id}.${column.id}`;
+  }
+
+  function rowHasMasterEdits(company) {
+    return Array.from(editedMasterCells).some((key) => key.startsWith(`${company.id}.`));
+  }
+
+  function formatMasterValue(column, value) {
+    if (value === "" || value === null || value === undefined || Number.isNaN(value)) return "N/A";
+    if (column.kind === "money") return money(value);
+    if (column.kind === "percent") return percent(value);
+    if (column.kind === "multiple") return multiple(value);
+    if (column.kind === "irr") return irr(value);
+    if (column.kind === "month") return value;
+    if (column.kind === "number") return number(value);
+    if (column.kind === "select") {
+      const choice = column.choices?.find(([choiceValue]) => String(choiceValue) === String(value));
+      return choice ? choice[1] : value || "Mixed";
+    }
+    return value;
+  }
+
+  function masterInputValue(value) {
+    if (value === "" || value === null || value === undefined || Number.isNaN(value)) return "";
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) return value;
+    return Number.isInteger(numberValue) ? String(numberValue) : String(Math.round(numberValue * 10000) / 10000);
+  }
+
+  function renderMasterCell(company, column, context) {
+    const key = tableCellKey(company, column);
+    const rowEdited = rowHasMasterEdits(company);
+    const edited = editedMasterCells.has(key);
+    const affected = !edited && rowEdited && column.affected;
+    const classes = [edited ? "edited-cell" : "", affected ? "affected-cell" : ""].filter(Boolean).join(" ");
+    const value = column.value(context);
+    if (column.fixed) return `<td class="${classes}"><span class="readonly">${escapeHtml(value)}</span></td>`;
+    if (!column.editable) return `<td class="${classes}"><span class="readonly">${escapeHtml(formatMasterValue(column, value))}</span></td>`;
+    const hasTarget = column.target === "company" || column.target === "scenarioValuation" || column.target === "scenarioEvent" || aggregateTranches(company, column.aggregate).length > 0;
+    if (!hasTarget) return `<td class="muted-cell ${classes}">N/A</td>`;
+    if (column.kind === "select") {
+      const options = column.choices.map(([choiceValue, label]) => (
+        `<option value="${escapeHtml(choiceValue)}" ${String(choiceValue) === String(value) ? "selected" : ""}>${escapeHtml(label)}</option>`
+      )).join("");
+      return `<td class="${classes}"><select data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}"><option value="">Mixed</option>${options}</select></td>`;
+    }
+    if (column.kind === "month") {
+      return `<td class="${classes}"><input data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}" type="month" value="${escapeHtml(masterInputValue(value))}" /></td>`;
+    }
+    return `<td class="${classes}"><input data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}" type="number" step="${column.step || "any"}" value="${escapeHtml(masterInputValue(value))}" /></td>`;
+  }
+
+  function groupedMasterHeaders(columns) {
+    return columns.reduce((groups, column) => {
+      const label = column.group || "Other";
+      const last = groups[groups.length - 1];
+      if (last && last.label === label) {
+        last.count += 1;
+      } else {
+        groups.push({ label, count: 1, fixed: column.fixed });
+      }
+      return groups;
+    }, []);
+  }
+
+  function renderMasterTable() {
+    renderColumnPicker();
+    const current = model.computeFund(seed.companies, { events: {} }, { ...assumptions, safeMarkMode: "cost" }, seed.asOfDate);
+    const pro = model.computeFund(seed.companies, activeScenario(), assumptions, seed.asOfDate);
+    const columns = visibleColumns();
+    $("masterTable").innerHTML = `
+      <thead>
+        <tr class="master-group-row">
+          ${groupedMasterHeaders(columns).map((group) => `<th class="master-group-heading ${group.fixed ? "sticky-left" : ""}" colspan="${group.count}">${escapeHtml(group.label)}</th>`).join("")}
+        </tr>
+        <tr class="master-column-row">
+          ${columns.map((column) => `<th class="master-column-heading">${escapeHtml(column.label)}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${seed.companies.map((company) => {
+          const context = { company, state: current.byCompany[company.id], proState: pro.byCompany[company.id] };
+          return `<tr>${columns.map((column) => renderMasterCell(company, column, context)).join("")}</tr>`;
+        }).join("")}
+      </tbody>
+    `;
+  }
+
+  function masterColumnById(id) {
+    return masterColumns().find((column) => column.id === id);
+  }
+
+  function currentMasterValue(company, column) {
+    const state = model.applyCompanyScenario(company, [], { ...assumptions, safeMarkMode: "cost" });
+    const proState = model.applyCompanyScenario(company, eventsFor(company.id), assumptions);
+    return column.value({ company, state, proState });
+  }
+
+  function masterValuesEqual(column, previous, next) {
+    if (column.kind === "select") return String(previous) === String(next);
+    return String(masterInputValue(previous)) === String(masterInputValue(next));
+  }
+
+  function coerceMasterEditValue(column, rawValue) {
+    if (column.kind === "select" && column.eventKey?.endsWith(".enabled")) return rawValue === "true";
+    if (column.kind === "select") return rawValue;
+    if (column.kind === "month") return rawValue;
+    return Number(rawValue) || 0;
+  }
+
+  function displayComparableValue(column, value) {
+    if (column.kind === "select" && typeof value === "boolean") return String(value);
+    return value;
+  }
+
+  function applyMasterScenarioEventEdit(companyId, column, value) {
+    const event = upsertMasterScenarioEvent(companyId, column.eventType);
+    const nextValue = column.kind === "month" && column.eventKey === "date"
+      ? dateFromMonth(value, event.date)
+      : value;
+    setNestedValue(event, column.eventKey, nextValue);
+    saveScenarios();
+  }
+
+  function applyMasterTableEdit(companyId, columnId, rawValue) {
+    const company = seed.companies.find((item) => item.id === companyId);
+    const column = masterColumnById(columnId);
+    if (!company || !column || !column.editable) return;
+    const value = coerceMasterEditValue(column, rawValue);
+    const previous = currentMasterValue(company, column);
+    if (masterValuesEqual(column, displayComparableValue(column, previous), displayComparableValue(column, value))) return;
+    if (column.target === "company") {
+      company[column.key] = value;
+      if (["fdShares", "ownershipPct", "shares"].includes(column.key)) {
+        companyFieldOrigins[`${company.id}.${column.key}`] = "user";
+      }
+      saveCompanyFieldOrigins();
+    } else if (column.target === "aggregate") {
+      setAggregateField(company, column.aggregate, column.key, value);
+    } else if (column.target === "scenarioValuation") {
+      upsertValuationEvent(company.id, value);
+    } else if (column.target === "scenarioEvent") {
+      applyMasterScenarioEventEdit(company.id, column, value);
+    }
+    editedMasterCells.add(`${company.id}.${column.id}`);
+    render();
+  }
+
+  function handleMasterInputCommit(input) {
+    const masterInput = input.dataset.masterInput;
+    if (!masterInput) return;
+    if (input.tagName === "SELECT" && input.value === "") return;
+    applyMasterTableEdit(input.dataset.companyId, masterInput, input.value);
+  }
+
+  function scheduleMasterInputCommit(input) {
+    const masterInput = input.dataset.masterInput;
+    if (!masterInput || input.tagName === "SELECT") return;
+    const companyId = input.dataset.companyId;
+    const value = input.value;
+    const key = `${companyId}.${masterInput}`;
+    clearTimeout(masterInputTimers.get(key));
+    masterInputTimers.set(key, setTimeout(() => {
+      masterInputTimers.delete(key);
+      applyMasterTableEdit(companyId, masterInput, value);
+    }, 350));
+  }
+
   function renderBaseline(company, state) {
     $("baselinePanel").innerHTML = `
       <div class="two-col">
@@ -625,6 +1103,7 @@
       return `Future round: ${money(event.roundSize)} at ${money(event.preMoney)} pre, ${event.optionPoolPct}% pool, action ${event.action}${secondary}`;
     }
     if (event.type === "secondary") return `${event.side === "sell" ? "Sell" : "Buy"} secondary: ${event.amount}${event.mode === "pct" ? "% position" : ""} at ${event.premiumDiscountPct}% to last round`;
+    if (event.type === "valuation") return `Pro forma company valuation set to ${money(event.enterpriseValue)} EV`;
     if (event.type === "exit") return event.exitType === "writeoff" ? "Write-off" : `${event.exitType.toUpperCase()} exit at ${money(event.exitEV)} EV`;
     return event.type;
   }
@@ -705,6 +1184,12 @@
       });
     });
     document.body.addEventListener("click", (event) => {
+      const view = event.target.dataset.view;
+      if (view) {
+        activeView = view;
+        render();
+        return;
+      }
       const id = event.target.dataset.deleteEvent;
       if (!id) return;
       const events = eventsFor(selectedCompanyId);
@@ -712,6 +1197,28 @@
       if (index >= 0) events.splice(index, 1);
       saveScenarios();
       render();
+    });
+    document.body.addEventListener("change", (event) => {
+      const columnId = event.target.dataset.columnToggle;
+      if (columnId) {
+        const selected = new Set(visibleMasterColumns);
+        if (event.target.checked) selected.add(columnId);
+        else selected.delete(columnId);
+        visibleMasterColumns = Array.from(selected);
+        saveVisibleMasterColumns();
+        renderMasterTable();
+        return;
+      }
+      const masterInput = event.target.dataset.masterInput;
+      if (masterInput) {
+        handleMasterInputCommit(event.target);
+      }
+    });
+    document.body.addEventListener("focusout", (event) => {
+      if (event.target.dataset.masterInput) handleMasterInputCommit(event.target);
+    });
+    document.body.addEventListener("input", (event) => {
+      if (event.target.dataset.masterInput) scheduleMasterInputCommit(event.target);
     });
   }
 
@@ -732,10 +1239,12 @@
 
   function render() {
     renderAssumptions();
+    renderViewTabs();
     renderScenarioSelect();
     renderDashboard();
     renderCompanyList();
     renderCompanyDetail();
+    renderMasterTable();
     renderSetupGate();
   }
 

@@ -328,6 +328,13 @@
     state.notes.push(event.exitType === "writeoff" ? "Write-off" : `Exit proceeds: ${fmtMoney(payout)}`);
   }
 
+  function applyValuationOverride(event, state) {
+    const enterpriseValue = Number(event.enterpriseValue) || 0;
+    if (enterpriseValue <= 0) return;
+    state.value = state.ownership > 0 ? state.ownership * enterpriseValue : 0;
+    state.notes.push(`Company valuation override: ${fmtMoney(enterpriseValue)} EV`);
+  }
+
   function applyCompanyScenario(company, events = [], assumptions = {}) {
     const state = {
       id: company.id,
@@ -351,6 +358,7 @@
           : state.totalShares * Math.max(weightedSharePrice(company), 0.000001);
         applySecondary(company, event, state, impliedCompanyValue);
       }
+      if (event.type === "valuation") applyValuationOverride(event, state);
       if (event.type === "exit") applyExit(company, event, state);
       state.ownership = state.totalShares > 0 ? state.shares / state.totalShares : currentOwnership(company);
     });

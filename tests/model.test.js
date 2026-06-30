@@ -18,12 +18,26 @@ assert.strictEqual(tranche("get-sonar", "get-sonar-safe").valuationCap, 10000000
 assert.strictEqual(tranche("pluro", "pluro-safe").valuationCap, 4000000, "Pluro SAFE cap should be sourced at $4M");
 assert.strictEqual(tranche("joshu", "joshu-safe-2025").cashOutMultiple, 3, "Joshu 2025 SAFE should carry 3x cash-out");
 assert.strictEqual(tranche("taxray", "taxray-safe").valuationCap, 12000000, "TaxRay SAFE cap should be sourced at $12M");
+assert.strictEqual(tranche("shopeaks", "shopeaks-safe-1").date, "2025-01-13", "Shopeaks $100k SAFE should use the signed SAFE effective date");
+assert.strictEqual(tranche("shopeaks", "shopeaks-safe-1").type, "safe-post", "Shopeaks $100k SAFE should use post-money cap mechanics");
+assert.strictEqual(tranche("shopeaks", "shopeaks-safe-1").valuationCap, 3500000, "Shopeaks $100k SAFE should be sourced at $3.5M post-money cap");
+assert.strictEqual(tranche("shopeaks", "shopeaks-safe-1").discountPct, 0, "Shopeaks $100k SAFE should not apply a discount unless one is stated");
+assert.strictEqual(tranche("shopeaks", "shopeaks-safe-1").proRata, false, "Shopeaks $100k SAFE should not treat liquidation pro rata language as follow-on pro-rata rights");
+assert.strictEqual(tranche("shopeaks", "shopeaks-safe-1").cashOutMultiple, 1, "Shopeaks $100k SAFE liquidity pay-out should be at least 1x purchase amount");
 assert.strictEqual(tranche("shopeaks", "shopeaks-safe-2").type, "safe-pre", "Shopeaks $50k SAFE should use pre-money cap mechanics");
 assert.strictEqual(tranche("shopeaks", "shopeaks-safe-2").valuationCap, 8000000, "Shopeaks $50k SAFE should be sourced at $8M pre-money cap");
 assert.strictEqual(tranche("shopeaks", "shopeaks-safe-2").discountPct, 0, "Shopeaks $50k SAFE should not apply a discount unless one is stated");
 assert.strictEqual(tranche("shopeaks", "shopeaks-safe-2").cashOutMultiple, 1, "Shopeaks $50k SAFE liquidity pay-out should be at least 1x purchase amount");
 assert.strictEqual(SEED_PORTFOLIO.assumptions.managementFeePct, 2.5, "management fee should be fixed at 2.5%");
 assert.strictEqual(SEED_PORTFOLIO.assumptions.carryPct, 20, "carry should be fixed at 20%");
+assert.strictEqual(byId["anchor-forge"].fdShares, 47826079, "Anchor Forge FD shares should reflect the supplied cap table");
+assert.strictEqual(byId["get-sonar"].fdShares, 9942221, "Get Sonar FD shares should reflect the supplied cap table");
+assert.strictEqual(byId.joshu.fdShares, 19867421, "Joshu FD shares should reflect the supplied cap table");
+assert.strictEqual(byId.liquidonate.ownershipPct, 1.309, "LiquiDonate FD ownership should use the user-provided current metric");
+assert.strictEqual(byId["lira-ai"].fdShares, 3564739, "Lira FD shares should use the user-provided current metric");
+assert.strictEqual(byId.materialspace.fdShares, 23684582, "Materialspace FD denominator should be implied by confirmed shares and ownership");
+assert.strictEqual(byId.spiral.fdShares, 10561916, "Spiral FD shares should use the user-provided current metric");
+assert.strictEqual(byId.uplifted.fdShares, 19289219, "Uplifted FD shares should reflect the supplied cap table");
 ["anchor-seed", "spiral-a3", "timeos-seed-plus"].forEach((trancheId) => {
   const companyId = trancheId === "anchor-seed" ? "anchor-forge" : trancheId === "spiral-a3" ? "spiral" : "timeos";
   const item = tranche(companyId, trancheId);
@@ -114,6 +128,19 @@ const roundSecondaryBuyScenario = {
 const roundSecondaryBuy = VCModel.computeFund(SEED_PORTFOLIO.companies, roundSecondaryBuyScenario, SEED_PORTFOLIO.assumptions, SEED_PORTFOLIO.asOfDate);
 assert(roundSecondaryBuy.paidIn > current.paidIn, "concurrent round secondary buy should increase paid-in");
 assert(!Object.prototype.hasOwnProperty.call(roundSecondaryBuy, "dryPowder"), "secondary buys should not expose dry powder");
+
+const valuationScenario = {
+  name: "Company valuation override test",
+  events: {
+    liquidonate: [
+      { id: "valuation", type: "valuation", date: SEED_PORTFOLIO.asOfDate, enterpriseValue: 50000000 }
+    ]
+  }
+};
+const valuationOverride = VCModel.computeFund(SEED_PORTFOLIO.companies, valuationScenario, SEED_PORTFOLIO.assumptions, SEED_PORTFOLIO.asOfDate);
+const liquidonateState = valuationOverride.byCompany.liquidonate;
+assert(Math.abs((liquidonateState.value / liquidonateState.ownership) - 50000000) < 1, "valuation override should set company-level EV");
+assert(valuationOverride.residual > current.residual, "valuation override should flow into fund residual value");
 
 const exitScenario = {
   name: "Exit test",
