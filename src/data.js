@@ -10,7 +10,7 @@ window.SEED_PORTFOLIO = {
     safeMarkMode: "cost"
   },
   companies: [
-    { id: "anchor-forge", name: "Anchor Forge Ltd.", shares: 217391, cost: 99999.86, value: 99999.86, ownershipPct: 0.4545, fdShares: 47826079, outstandingShares: 43043471, tranches: [
+    { id: "anchor-forge", name: "Anchor Browser", shares: 217391, cost: 99999.86, value: 99999.86, ownershipPct: 0.4545, fdShares: 47826079, outstandingShares: 43043471, tranches: [
       { id: "anchor-seed", type: "priced", name: "Series Seed Preferred", date: "2025-08-13", shares: 217391, cost: 99999.86, value: 99999.86, price: 0.46, seniority: 1, liqMultiple: 1, participation: "non", simplifyingAssumption: "Assumes standard early-stage preferred economics: 1x non-participating liquidation preference, rank 1 / pari passu. This assumption is not based on the data provided.", source: "Ancor_Cap table - all.xlsx: Maccabee/Moshe deferred closing row shows 217,391 shares, 0.5050% issued ownership, 0.4545% FD ownership, and total FD shares of 47,826,079; legal terms still not cleanly parsed into model" }
     ] },
     { id: "covered-health", name: "Covered Health Inc, Inc. dba Protego", shares: 49999, cost: 499.99, value: 499.99, ownershipPct: 0.5, fdShares: 9999800, tranches: [
