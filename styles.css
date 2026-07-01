@@ -1013,8 +1013,7 @@ body.setup-active main {
   background: #e9f3ff;
 }
 
-.quality-badge.assumption,
-.quality-badge.needs-review {
+.quality-badge.assumption {
   border-color: #d7b86a;
   color: #855f0f;
   background: #fff7de;

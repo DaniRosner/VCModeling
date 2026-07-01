@@ -771,7 +771,7 @@
       return { level: "Assumption", note: tranche.simplifyingAssumption };
     }
     if (trancheRequiresSetup(tranche)) {
-      return { level: "Needs review", note: "The source note indicates that one or more terms are not cleanly sourced." };
+      return { level: "Assumption", note: "One or more terms are not cleanly sourced and are being treated as assumptions." };
     }
     return { level: "Sourced", note: "Terms are supported by the provided materials or current metrics." };
   }
@@ -821,8 +821,7 @@
     const ranks = {
       Sourced: 1,
       "User supplied": 2,
-      Assumption: 3,
-      "Needs review": 4
+      Assumption: 3
     };
     return ranks[status] || 0;
   }
@@ -859,7 +858,7 @@
 
   function qualityNotes(items) {
     const notes = items
-      .filter((item) => item.level === "Needs review" || item.level === "Assumption")
+      .filter((item) => item.level === "Assumption")
       .map((item) => item.note)
       .filter(Boolean);
     if (!notes.length) return "No missing or assumed data flagged.";
@@ -879,7 +878,7 @@
       return {
         company,
         overall: companyOverallQuality(company),
-        missingCount: qualityCount(items, ["Assumption", "Needs review"]),
+        missingCount: qualityCount(items, ["Assumption"]),
         assumptionCount: qualityCount(items, ["Assumption"]),
         userSuppliedCount: qualityCount(items, ["User supplied"]),
         shares,
@@ -895,7 +894,6 @@
 
   function qualityFilterMatches(row) {
     if (activeQualityFilter === "all") return true;
-    if (activeQualityFilter === "review") return row.overall === "Needs review";
     if (activeQualityFilter === "assumption") return row.assumptionCount > 0;
     if (activeQualityFilter === "user") return row.overall === "User supplied" || row.userSuppliedCount > 0;
     if (activeQualityFilter === "sourced") return row.overall === "Sourced";
@@ -908,7 +906,6 @@
       ["Total companies", rows.length],
       ["Fully sourced", rows.filter((row) => row.overall === "Sourced").length],
       ["With assumptions", rows.filter((row) => row.assumptionCount > 0).length],
-      ["Needs review", rows.filter((row) => row.overall === "Needs review").length],
       ["User-supplied overrides", rows.reduce((sum, row) => sum + row.userSuppliedCount, 0)]
     ];
     $("qualitySummary").innerHTML = totals.map(([label, value]) => `
@@ -922,7 +919,6 @@
   function renderQualityFilters() {
     const filters = [
       ["all", "All"],
-      ["review", "Needs review"],
       ["assumption", "Assumptions"],
       ["user", "User supplied"],
       ["sourced", "Sourced"]
