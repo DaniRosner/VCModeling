@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Maccabee Ventures Fund II Scenario Model</title>
-    <link rel="stylesheet" href="./styles.css?v=sourced-metrics-1" />
+    <link rel="stylesheet" href="./styles.css?v=change-summary-1" />
   </head>
   <body>
     <main id="app">
@@ -16,7 +16,7 @@
         <div class="top-actions">
           <select id="scenarioSelect" aria-label="Scenario"></select>
           <button id="saveScenarioBtn" type="button">Save Scenario</button>
-          <button id="resetScenarioBtn" type="button" class="secondary">Reset</button>
+          <button id="resetScenarioBtn" type="button" class="secondary">Revert Changes</button>
         </div>
       </section>
 
@@ -38,6 +38,8 @@
         </div>
         <div id="deltaMetrics" class="delta-strip"></div>
       </section>
+
+      <section id="changeSummary" class="change-summary hidden" aria-live="polite"></section>
 
       <nav class="view-tabs" aria-label="Model views">
         <button class="view-tab active" data-view="company" type="button">ModernView</button>
@@ -116,8 +118,8 @@
       </div>
     </div>
 
-    <script src="./src/data.js?v=sourced-metrics-1"></script>
-    <script src="./src/model.js?v=sourced-metrics-1"></script>
-    <script src="./src/app.js?v=sourced-metrics-1"></script>
+    <script src="./src/data.js?v=change-summary-1"></script>
+    <script src="./src/model.js?v=change-summary-1"></script>
+    <script src="./src/app.js?v=change-summary-1"></script>
   </body>
 </html>

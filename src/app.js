@@ -25,6 +25,10 @@
   const $ = (id) => document.getElementById(id);
 
   applySetupInputs();
+  const baselineAssumptions = model.clone(assumptions);
+  const baselineAssumptionOrigins = model.clone(assumptionOrigins);
+  const baselineCompanyFieldOrigins = model.clone(companyFieldOrigins);
+  const baselineCompanies = model.clone(seed.companies);
 
   function loadAssumptions() {
     const saved = localStorage.getItem(assumptionsKey);
@@ -120,6 +124,208 @@
 
   function saveScenarios() {
     localStorage.setItem(storageKey, JSON.stringify(scenarios));
+  }
+
+  function baselineCompany(companyId) {
+    return baselineCompanies.find((company) => company.id === companyId);
+  }
+
+  function baselineTranche(trancheId) {
+    return baselineCompanies.flatMap((company) => company.tranches).find((tranche) => tranche.id === trancheId);
+  }
+
+  function currentTranche(trancheId) {
+    return seed.companies.flatMap((company) => company.tranches).find((tranche) => tranche.id === trancheId);
+  }
+
+  function valuesEqual(previous, next) {
+    if (typeof previous === "number" || typeof next === "number") {
+      return Math.abs((Number(previous) || 0) - (Number(next) || 0)) < 0.000001;
+    }
+    return JSON.stringify(previous ?? "") === JSON.stringify(next ?? "");
+  }
+
+  function changeKey(parts) {
+    return parts.map((part) => encodeURIComponent(String(part))).join("|");
+  }
+
+  function parseChangeKey(key) {
+    return key.split("|").map((part) => decodeURIComponent(part));
+  }
+
+  function changeFieldLabel(field) {
+    const labels = {
+      capitalCalled: "Capital called",
+      safeMarkMode: "SAFE / note marks",
+      shares: "Shares held",
+      fdShares: "FD shares",
+      ownershipPct: "Ownership %",
+      cost: "Cost",
+      value: "Carrying value",
+      price: "Share price",
+      valuationCap: "SAFE cap",
+      discountPct: "SAFE discount %",
+      cashOutMultiple: "Cash-out multiple",
+      proRata: "Pro-rata rights",
+      strikePrice: "Strike / exercise price",
+      vestedPct: "Vested %",
+      liqMultiple: "Liquidation preference",
+      seniority: "Seniority rank",
+      participation: "Participation",
+      type: "Security type"
+    };
+    return labels[field] || field;
+  }
+
+  function formatChangeValue(value) {
+    if (value === true) return "Yes";
+    if (value === false) return "No";
+    if (value === "" || value === null || value === undefined) return "blank";
+    if (typeof value === "number") {
+      if (Math.abs(value) >= 1000) return number(value);
+      return Number.isInteger(value) ? String(value) : String(Math.round(value * 10000) / 10000);
+    }
+    return String(value);
+  }
+
+  function changedFromTo(previous, next) {
+    return `${formatChangeValue(previous)} -> ${formatChangeValue(next)}`;
+  }
+
+  function activeScenarioEvents() {
+    const scenario = activeScenario();
+    return seed.companies.flatMap((company) => (scenario.events[company.id] || []).map((event) => ({ company, event })));
+  }
+
+  function trackedTrancheFields(tranche) {
+    const common = ["shares", "cost", "value"];
+    if (["safe-post", "safe-pre", "note"].includes(tranche.type)) {
+      return [...common, "type", "valuationCap", "discountPct", "cashOutMultiple", "proRata"];
+    }
+    if (["option", "warrant"].includes(tranche.type)) {
+      return [...common, "strikePrice", "vestedPct"];
+    }
+    return [...common, "price", "liqMultiple", "seniority", "participation"];
+  }
+
+  function changeItems() {
+    const items = [];
+    ["capitalCalled", "safeMarkMode"].forEach((field) => {
+      if (valuesEqual(baselineAssumptions[field], assumptions[field])) return;
+      items.push({
+        key: changeKey(["assumption", field]),
+        title: changeFieldLabel(field),
+        detail: changedFromTo(baselineAssumptions[field], assumptions[field])
+      });
+    });
+
+    seed.companies.forEach((company) => {
+      const originalCompany = baselineCompany(company.id);
+      if (!originalCompany) return;
+      ["shares", "fdShares", "ownershipPct"].forEach((field) => {
+        if (valuesEqual(originalCompany[field], company[field])) return;
+        items.push({
+          key: changeKey(["company", company.id, field]),
+          title: `${company.name} - ${changeFieldLabel(field)}`,
+          detail: changedFromTo(originalCompany[field], company[field])
+        });
+      });
+      company.tranches.forEach((tranche) => {
+        const originalTranche = baselineTranche(tranche.id);
+        if (!originalTranche) return;
+        trackedTrancheFields(tranche).forEach((field) => {
+          if (valuesEqual(originalTranche[field], tranche[field])) return;
+          items.push({
+            key: changeKey(["tranche", company.id, tranche.id, field]),
+            title: `${company.name} - ${tranche.name} - ${changeFieldLabel(field)}`,
+            detail: changedFromTo(originalTranche[field], tranche[field])
+          });
+        });
+      });
+    });
+
+    activeScenarioEvents().forEach(({ company, event }) => {
+      items.push({
+        key: changeKey(["event", company.id, event.id]),
+        title: `${company.name} - Scenario event`,
+        detail: describeEvent(event)
+      });
+    });
+    return items;
+  }
+
+  function restoreOrigin(map, baselineMap, key) {
+    if (baselineMap[key]) map[key] = baselineMap[key];
+    else delete map[key];
+  }
+
+  function restoreTrancheMetadataIfClean(tranche) {
+    const original = baselineTranche(tranche.id);
+    if (!original) return;
+    const clean = trackedTrancheFields(tranche).every((field) => valuesEqual(original[field], tranche[field]));
+    if (!clean) return;
+    if (original.simplifyingAssumption) tranche.simplifyingAssumption = original.simplifyingAssumption;
+    else delete tranche.simplifyingAssumption;
+    tranche.source = original.source;
+  }
+
+  function clearMasterEditHighlightsFor(companyId) {
+    if (!companyId) {
+      editedMasterCells.clear();
+      return;
+    }
+    editedMasterCells = new Set(Array.from(editedMasterCells).filter((key) => !key.startsWith(`${companyId}.`)));
+  }
+
+  function revertChange(key) {
+    const [type, id, subId, field] = parseChangeKey(key);
+    if (type === "assumption") {
+      assumptions[id] = baselineAssumptions[id];
+      restoreOrigin(assumptionOrigins, baselineAssumptionOrigins, id);
+      saveAssumptions();
+      saveAssumptionOrigins();
+    } else if (type === "company") {
+      const company = seed.companies.find((item) => item.id === id);
+      const original = baselineCompany(id);
+      if (company && original) {
+        company[subId] = original[subId];
+        restoreOrigin(companyFieldOrigins, baselineCompanyFieldOrigins, `${id}.${subId}`);
+        saveCompanyFieldOrigins();
+        clearMasterEditHighlightsFor(id);
+      }
+    } else if (type === "tranche") {
+      const company = seed.companies.find((item) => item.id === id);
+      const tranche = currentTranche(subId);
+      const original = baselineTranche(subId);
+      if (company && tranche && original) {
+        tranche[field] = original[field];
+        restoreTrancheMetadataIfClean(tranche);
+        refreshCompanyTotals(company);
+        clearMasterEditHighlightsFor(id);
+      }
+    } else if (type === "event") {
+      const events = eventsFor(id);
+      const index = events.findIndex((event) => event.id === subId);
+      if (index >= 0) events.splice(index, 1);
+      saveScenarios();
+      clearMasterEditHighlightsFor(id);
+    }
+    render();
+  }
+
+  function revertAllChanges() {
+    Object.keys(assumptions).forEach((key) => delete assumptions[key]);
+    Object.assign(assumptions, model.clone(baselineAssumptions));
+    assumptionOrigins = model.clone(baselineAssumptionOrigins);
+    companyFieldOrigins = model.clone(baselineCompanyFieldOrigins);
+    seed.companies.splice(0, seed.companies.length, ...model.clone(baselineCompanies));
+    activeScenario().events = {};
+    editedMasterCells.clear();
+    saveAssumptions();
+    saveAssumptionOrigins();
+    saveCompanyFieldOrigins();
+    saveScenarios();
+    render();
   }
 
   function activeScenario() {
@@ -719,6 +925,41 @@
     }).join("");
   }
 
+  function renderChangeSummary() {
+    const node = $("changeSummary");
+    if (!node) return;
+    const items = changeItems();
+    node.classList.toggle("hidden", !items.length);
+    if (!items.length) {
+      node.innerHTML = "";
+      return;
+    }
+    node.innerHTML = `
+      <div class="change-summary-header">
+        <div>
+          <p class="eyebrow">Current changes</p>
+          <h2>${items.length} change${items.length === 1 ? "" : "s"}</h2>
+        </div>
+        <button id="revertAllChangesBtn" type="button" class="secondary">Revert All Changes</button>
+      </div>
+      <div class="change-list">
+        ${items.map((item) => `
+          <div class="change-item">
+            <div>
+              <strong>${escapeHtml(item.title)}</strong>
+              <span>${escapeHtml(item.detail)}</span>
+            </div>
+            <button type="button" data-revert-change="${escapeHtml(item.key)}">Revert</button>
+          </div>
+        `).join("")}
+      </div>
+    `;
+    $("revertAllChangesBtn").addEventListener("click", () => {
+      if (!confirm("Revert all current edits and scenario events?")) return;
+      revertAllChanges();
+    });
+  }
+
   function renderCompanyList() {
     const query = $("companySearch").value.trim().toLowerCase();
     const pro = model.computeFund(seed.companies, activeScenario(), assumptions, seed.asOfDate);
@@ -1175,10 +1416,8 @@
       render();
     });
     $("resetScenarioBtn").addEventListener("click", () => {
-      if (!confirm("Clear all hypotheticals in this scenario?")) return;
-      activeScenario().events = {};
-      saveScenarios();
-      render();
+      if (!confirm("Revert all current edits and scenario events?")) return;
+      revertAllChanges();
     });
     $("companySearch").addEventListener("input", renderCompanyList);
     document.querySelectorAll(".tab").forEach((tab) => {
@@ -1201,6 +1440,11 @@
       if (view) {
         activeView = view;
         render();
+        return;
+      }
+      const revertKey = event.target.dataset.revertChange;
+      if (revertKey) {
+        revertChange(revertKey);
         return;
       }
       const id = event.target.dataset.deleteEvent;
@@ -1255,6 +1499,7 @@
     renderViewTabs();
     renderScenarioSelect();
     renderDashboard();
+    renderChangeSummary();
     renderCompanyList();
     renderCompanyDetail();
     renderMasterTable();

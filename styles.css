@@ -54,7 +54,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   padding: 24px 0 40px;
 }
 
-.topbar, .dashboard, .workspace, .assumptions, .view-tabs, .master-workspace {
+.topbar, .dashboard, .workspace, .assumptions, .view-tabs, .master-workspace, .change-summary {
   margin-bottom: 16px;
 }
 
@@ -204,6 +204,61 @@ label input, label select {
 
 .delta.negative {
   border-color: var(--red);
+}
+
+.change-summary {
+  border: 1px solid #b8d4ee;
+  border-radius: 8px;
+  background: #f6fbff;
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.change-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.change-summary-header h2 {
+  margin-top: 2px;
+}
+
+.change-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.change-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #cfe0f2;
+  border-radius: 6px;
+  background: white;
+  padding: 10px;
+}
+
+.change-item strong,
+.change-item span {
+  display: block;
+}
+
+.change-item span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.change-item button {
+  background: white;
+  border-color: #8bb8e8;
+  color: #235d90;
 }
 
 .view-tabs {
@@ -736,7 +791,7 @@ body.setup-active main {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .table-toolbar, .table-legend {
+  .table-toolbar, .table-legend, .change-summary-header {
     align-items: flex-start;
     flex-direction: column;
   }
