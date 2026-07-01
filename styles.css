@@ -255,6 +255,36 @@ label input, label select {
   margin-top: 3px;
 }
 
+.change-item .change-intent {
+  display: inline-block;
+  margin: 0 0 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #f7f9f9;
+  color: var(--muted);
+  font-size: 10px;
+  vertical-align: middle;
+}
+
+.change-intent.current-book-data {
+  border-color: #d7b86a;
+  background: #fff7de;
+  color: #855f0f;
+}
+
+.change-intent.hypothetical-lever {
+  border-color: #b9a0e6;
+  background: #f1e8ff;
+  color: #63469a;
+}
+
+.change-intent.fund-level-policy {
+  border-color: #8bb8e8;
+  background: #e9f3ff;
+  color: #235d90;
+}
+
 .change-item button {
   background: white;
   border-color: #8bb8e8;
@@ -337,9 +367,23 @@ body.setup-active main {
 
 .setup-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   padding: 18px;
+}
+
+.setup-group {
+  display: grid;
+  gap: 10px;
+}
+
+.setup-group h3 {
+  color: var(--green);
+}
+
+.setup-group-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .setup-field {
@@ -475,6 +519,21 @@ body.setup-active main {
   border: 1px solid #93cfb7;
 }
 
+.legend-current {
+  background: #fff7de;
+  border: 1px solid #d7b86a;
+}
+
+.legend-hypothetical {
+  background: #f1e8ff;
+  border: 1px solid #b9a0e6;
+}
+
+.legend-output {
+  background: #edf0f1;
+  border: 1px solid #c8d1d4;
+}
+
 .master-table-wrap {
   min-height: 420px;
   max-height: calc(100vh - 360px);
@@ -527,6 +586,15 @@ body.setup-active main {
   background: #eef3ef;
 }
 
+.column-intent {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: none;
+}
+
 .master-table th:first-child,
 .master-table td:first-child {
   position: sticky;
@@ -566,6 +634,18 @@ body.setup-active main {
 
 .master-table .muted-cell {
   color: var(--muted);
+}
+
+.master-table .intent-current-book-data {
+  background: #fffdf5;
+}
+
+.master-table .intent-hypothetical-lever {
+  background: #fcf8ff;
+}
+
+.master-table .intent-calculated-output {
+  background: #f7f9f9;
 }
 
 .master-table .edited-cell,
@@ -734,6 +814,79 @@ body.setup-active main {
   gap: 10px;
 }
 
+.readonly-grid,
+.quality-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.readonly-field,
+.quality-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfa;
+  padding: 10px;
+}
+
+.readonly-field span,
+.quality-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.readonly-field strong,
+.quality-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 18px;
+}
+
+.quality-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quality-badge {
+  display: inline-block;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: white;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.quality-badge.sourced {
+  border-color: #93cfb7;
+  color: var(--green);
+  background: #eaf7f1;
+}
+
+.quality-badge.user-supplied {
+  border-color: #8bb8e8;
+  color: #235d90;
+  background: #e9f3ff;
+}
+
+.quality-badge.assumption,
+.quality-badge.needs-review {
+  border-color: #d7b86a;
+  color: #855f0f;
+  background: #fff7de;
+}
+
+.quality-table {
+  margin-top: 12px;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -787,7 +940,7 @@ body.setup-active main {
     grid-template-columns: 1fr;
   }
 
-  .metric-grid, .delta-strip {
+  .metric-grid, .delta-strip, .readonly-grid, .quality-grid, .setup-group-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -817,7 +970,7 @@ body.setup-active main {
     display: grid;
   }
 
-  .metric-grid, .delta-strip, .form-grid, .detail-stats {
+  .metric-grid, .delta-strip, .form-grid, .detail-stats, .readonly-grid, .quality-grid, .setup-group-grid {
     grid-template-columns: 1fr;
     min-width: 0;
   }

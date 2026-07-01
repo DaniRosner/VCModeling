@@ -8,7 +8,10 @@
   const setupInputsKey = "maccabee-fund-ii-required-inputs-v2";
   const setupCompleteKey = "maccabee-fund-ii-setup-complete-v3";
   const masterColumnsKey = "maccabee-fund-ii-master-table-columns-v4";
+  const storageVersionKey = "maccabee-fund-ii-storage-version";
+  const appStorageVersion = "2026-07-01-source-baseline-v1";
 
+  prepareStorage();
   let assumptions = loadAssumptions();
   let assumptionOrigins = loadAssumptionOrigins();
   let companyFieldOrigins = loadCompanyFieldOrigins();
@@ -24,15 +27,38 @@
 
   const $ = (id) => document.getElementById(id);
 
-  applySetupInputs();
-  const baselineAssumptions = model.clone(assumptions);
-  const baselineAssumptionOrigins = model.clone(assumptionOrigins);
-  const baselineCompanyFieldOrigins = model.clone(companyFieldOrigins);
+  const baselineAssumptions = normalizeAssumptions(model.clone(seed.assumptions));
+  const baselineAssumptionOrigins = {};
+  const baselineCompanyFieldOrigins = {};
   const baselineCompanies = model.clone(seed.companies);
+  applySetupInputs();
 
-  function loadAssumptions() {
-    const saved = localStorage.getItem(assumptionsKey);
-    const loaded = saved ? { ...seed.assumptions, ...JSON.parse(saved) } : model.clone(seed.assumptions);
+  function prepareStorage() {
+    if (localStorage.getItem(storageVersionKey) === appStorageVersion) return;
+    [
+      assumptionsKey,
+      assumptionOriginsKey,
+      companyFieldOriginsKey,
+      setupInputsKey,
+      setupCompleteKey,
+      masterColumnsKey
+    ].forEach((key) => localStorage.removeItem(key));
+    localStorage.setItem(storageVersionKey, appStorageVersion);
+  }
+
+  function readJson(key, fallback) {
+    const saved = localStorage.getItem(key);
+    if (!saved) return fallback;
+    try {
+      return JSON.parse(saved);
+    } catch {
+      localStorage.removeItem(key);
+      return fallback;
+    }
+  }
+
+  function normalizeAssumptions(source) {
+    const loaded = model.clone(source || {});
     loaded.managementFeePct = 2.5;
     loaded.carryPct = 20;
     delete loaded.fundSize;
@@ -40,13 +66,16 @@
     return loaded;
   }
 
+  function loadAssumptions() {
+    return normalizeAssumptions({ ...seed.assumptions, ...readJson(assumptionsKey, {}) });
+  }
+
   function saveAssumptions() {
     localStorage.setItem(assumptionsKey, JSON.stringify(assumptions));
   }
 
   function loadAssumptionOrigins() {
-    const saved = localStorage.getItem(assumptionOriginsKey);
-    return saved ? JSON.parse(saved) : {};
+    return readJson(assumptionOriginsKey, {});
   }
 
   function saveAssumptionOrigins() {
@@ -54,8 +83,7 @@
   }
 
   function loadCompanyFieldOrigins() {
-    const saved = localStorage.getItem(companyFieldOriginsKey);
-    return saved ? JSON.parse(saved) : {};
+    return readJson(companyFieldOriginsKey, {});
   }
 
   function saveCompanyFieldOrigins() {
@@ -67,8 +95,7 @@
   }
 
   function loadVisibleMasterColumns() {
-    const saved = localStorage.getItem(masterColumnsKey);
-    return saved ? JSON.parse(saved) : defaultMasterColumnIds();
+    return readJson(masterColumnsKey, defaultMasterColumnIds());
   }
 
   function saveVisibleMasterColumns() {
@@ -76,8 +103,7 @@
   }
 
   function loadSetupInputs() {
-    const saved = localStorage.getItem(setupInputsKey);
-    return saved ? JSON.parse(saved) : { assumptions: {}, companies: {}, tranches: {} };
+    return readJson(setupInputsKey, { assumptions: {}, companies: {}, tranches: {} });
   }
 
   function saveSetupInputs() {
@@ -117,8 +143,8 @@
   }
 
   function loadScenarios() {
-    const saved = localStorage.getItem(storageKey);
-    if (saved) return JSON.parse(saved);
+    const saved = readJson(storageKey, null);
+    if (saved) return saved;
     return [{ id: "current", name: "Current book", events: {} }];
   }
 
@@ -214,6 +240,7 @@
       if (valuesEqual(baselineAssumptions[field], assumptions[field])) return;
       items.push({
         key: changeKey(["assumption", field]),
+        intent: "Fund-level policy",
         title: changeFieldLabel(field),
         detail: changedFromTo(baselineAssumptions[field], assumptions[field])
       });
@@ -226,6 +253,7 @@
         if (valuesEqual(originalCompany[field], company[field])) return;
         items.push({
           key: changeKey(["company", company.id, field]),
+          intent: "Current-book data",
           title: `${company.name} - ${changeFieldLabel(field)}`,
           detail: changedFromTo(originalCompany[field], company[field])
         });
@@ -237,6 +265,7 @@
           if (valuesEqual(originalTranche[field], tranche[field])) return;
           items.push({
             key: changeKey(["tranche", company.id, tranche.id, field]),
+            intent: "Current-book data",
             title: `${company.name} - ${tranche.name} - ${changeFieldLabel(field)}`,
             detail: changedFromTo(originalTranche[field], tranche[field])
           });
@@ -247,6 +276,7 @@
     activeScenarioEvents().forEach(({ company, event }) => {
       items.push({
         key: changeKey(["event", company.id, event.id]),
+        intent: "Hypothetical lever",
         title: `${company.name} - Scenario event`,
         detail: describeEvent(event)
       });
@@ -257,6 +287,19 @@
   function restoreOrigin(map, baselineMap, key) {
     if (baselineMap[key]) map[key] = baselineMap[key];
     else delete map[key];
+  }
+
+  function deleteSetupValue(kind, id, field) {
+    if (kind === "assumption") {
+      delete setupInputs.assumptions?.[id];
+    } else if (kind === "company") {
+      delete setupInputs.companies?.[id]?.[field];
+      if (setupInputs.companies?.[id] && !Object.keys(setupInputs.companies[id]).length) delete setupInputs.companies[id];
+    } else if (kind === "tranche") {
+      delete setupInputs.tranches?.[id]?.[field];
+      if (setupInputs.tranches?.[id] && !Object.keys(setupInputs.tranches[id]).length) delete setupInputs.tranches[id];
+    }
+    saveSetupInputs();
   }
 
   function restoreTrancheMetadataIfClean(tranche) {
@@ -282,6 +325,7 @@
     if (type === "assumption") {
       assumptions[id] = baselineAssumptions[id];
       restoreOrigin(assumptionOrigins, baselineAssumptionOrigins, id);
+      deleteSetupValue("assumption", id);
       saveAssumptions();
       saveAssumptionOrigins();
     } else if (type === "company") {
@@ -290,6 +334,7 @@
       if (company && original) {
         company[subId] = original[subId];
         restoreOrigin(companyFieldOrigins, baselineCompanyFieldOrigins, `${id}.${subId}`);
+        deleteSetupValue("company", id, subId);
         saveCompanyFieldOrigins();
         clearMasterEditHighlightsFor(id);
       }
@@ -300,6 +345,7 @@
       if (company && tranche && original) {
         tranche[field] = original[field];
         restoreTrancheMetadataIfClean(tranche);
+        deleteSetupValue("tranche", subId, field);
         refreshCompanyTotals(company);
         clearMasterEditHighlightsFor(id);
       }
@@ -318,12 +364,14 @@
     Object.assign(assumptions, model.clone(baselineAssumptions));
     assumptionOrigins = model.clone(baselineAssumptionOrigins);
     companyFieldOrigins = model.clone(baselineCompanyFieldOrigins);
+    setupInputs = { assumptions: {}, companies: {}, tranches: {} };
     seed.companies.splice(0, seed.companies.length, ...model.clone(baselineCompanies));
     activeScenario().events = {};
     editedMasterCells.clear();
     saveAssumptions();
     saveAssumptionOrigins();
     saveCompanyFieldOrigins();
+    saveSetupInputs();
     saveScenarios();
     render();
   }
@@ -697,6 +745,77 @@
     return Boolean(tranche.simplifyingAssumption) || trancheRequiresSetup(tranche);
   }
 
+  function qualityLevelClass(level) {
+    return level.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  }
+
+  function companyMetricQuality(company, field) {
+    if (companyFieldOrigins[`${company.id}.${field}`] === "user") {
+      return { level: "User supplied", note: "Entered by a user in setup or the master table." };
+    }
+    if (field === "shares") {
+      return { level: "Sourced", note: "Loaded from the portfolio data source." };
+    }
+    if (companyMetricIsSourced(company, field)) {
+      return { level: "Sourced", note: "Supported by provided cap table, legal document, or user-provided current metric." };
+    }
+    return { level: "Assumption", note: field === "fdShares" ? "FD share denominator is not explicitly sourced." : "Ownership percentage is not explicitly sourced." };
+  }
+
+  function trancheQuality(tranche) {
+    if (/^User input supplied/i.test(tranche.source || "")) {
+      return { level: "User supplied", note: "User input replaced the default assumption for this security." };
+    }
+    if (tranche.simplifyingAssumption) {
+      return { level: "Assumption", note: tranche.simplifyingAssumption };
+    }
+    if (trancheRequiresSetup(tranche)) {
+      return { level: "Needs review", note: "The source note indicates that one or more terms are not cleanly sourced." };
+    }
+    return { level: "Sourced", note: "Terms are supported by the provided materials or current metrics." };
+  }
+
+  function qualityBadge(level) {
+    return `<span class="quality-badge ${qualityLevelClass(level)}">${escapeHtml(level)}</span>`;
+  }
+
+  function renderDataQualityPanel(company) {
+    const metricRows = [
+      ["Current shares held", "shares", companyMetricQuality(company, "shares")],
+      ["Fully diluted shares", "fdShares", companyMetricQuality(company, "fdShares")],
+      ["Ownership %", "ownershipPct", companyMetricQuality(company, "ownershipPct")]
+    ];
+    const trancheRows = company.tranches.map((tranche) => {
+      const quality = trancheQuality(tranche);
+      return `
+        <tr>
+          <td>${escapeHtml(tranche.name)}</td>
+          <td>${qualityBadge(quality.level)}</td>
+          <td>${escapeHtml(quality.note)}</td>
+        </tr>
+      `;
+    }).join("");
+    return `
+      <div class="section data-quality">
+        <h3>Data Quality / Source Confidence</h3>
+        <div class="quality-grid">
+          ${metricRows.map(([label, field, quality]) => `
+            <div class="quality-card">
+              <span>${escapeHtml(label)}</span>
+              <strong>${field === "ownershipPct" ? `${company[field] || 0}%` : number(company[field] || 0)}</strong>
+              ${qualityBadge(quality.level)}
+              <small>${escapeHtml(quality.note)}</small>
+            </div>
+          `).join("")}
+        </div>
+        <table class="table quality-table">
+          <thead><tr><th>Security</th><th>Status</th><th>Note</th></tr></thead>
+          <tbody>${trancheRows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
   function setupField(id, label, type, target, note, options = {}) {
     return {
       id,
@@ -704,6 +823,7 @@
       type,
       target,
       note,
+      priority: options.priority || "Optional accuracy improvement",
       step: options.step || "any",
       min: options.min ?? 0,
       choices: options.choices || null
@@ -712,8 +832,9 @@
 
   function buildSetupFields() {
     const fields = [
-      setupField("capitalCalled", "Capital called", "number", { kind: "assumption", key: "capitalCalled" }, "Not sourced from fund books."),
+      setupField("capitalCalled", "Capital called", "number", { kind: "assumption", key: "capitalCalled" }, "Used only for net metrics. You can leave this blank and use the default.", { priority: "Fund-level policy" }),
       setupField("safeMarkMode", "SAFE / Note valuation policy", "select", { kind: "assumption", key: "safeMarkMode" }, "This is a model policy choice.", {
+        priority: "Fund-level policy",
         choices: [
           ["cost", "Hold at cost"],
           ["cap", "Mark to cap"]
@@ -730,7 +851,7 @@
           "number",
           { kind: "company", companyId: company.id, key: field },
           field === "fdShares" ? "Company FD share denominator is not sourced." : "Ownership percentage is not sourced.",
-          { step: field === "fdShares" ? "1" : "0.01" }
+          { priority: "Ownership accuracy", step: field === "fdShares" ? "1" : "0.01" }
         ));
       });
 
@@ -739,28 +860,38 @@
         if (!trancheNeedsSetupPrompt(tranche) && !optionNeedsSetup) return;
         const prefix = `${company.name} - ${tranche.name}`;
         if (["safe-post", "safe-pre", "note"].includes(tranche.type)) {
-          fields.push(setupField(`${tranche.id}.valuationCap`, `${prefix} valuation cap`, "number", { kind: "tranche", trancheId: tranche.id, key: "valuationCap" }, "SAFE/note cap is not fully sourced."));
-          fields.push(setupField(`${tranche.id}.discountPct`, `${prefix} discount %`, "number", { kind: "tranche", trancheId: tranche.id, key: "discountPct" }, "SAFE/note discount is not fully sourced.", { step: "0.1" }));
-          fields.push(setupField(`${tranche.id}.cashOutMultiple`, `${prefix} cash-out multiple`, "number", { kind: "tranche", trancheId: tranche.id, key: "cashOutMultiple" }, "Liquidity cash-out multiple is not fully sourced.", { step: "0.1" }));
+          fields.push(setupField(`${tranche.id}.valuationCap`, `${prefix} valuation cap`, "number", { kind: "tranche", trancheId: tranche.id, key: "valuationCap" }, "SAFE/note cap is not fully sourced.", { priority: "SAFE / note terms" }));
+          fields.push(setupField(`${tranche.id}.discountPct`, `${prefix} discount %`, "number", { kind: "tranche", trancheId: tranche.id, key: "discountPct" }, "SAFE/note discount is not fully sourced.", { priority: "SAFE / note terms", step: "0.1" }));
+          fields.push(setupField(`${tranche.id}.cashOutMultiple`, `${prefix} cash-out multiple`, "number", { kind: "tranche", trancheId: tranche.id, key: "cashOutMultiple" }, "Liquidity cash-out multiple is not fully sourced.", { priority: "SAFE / note terms", step: "0.1" }));
           fields.push(setupField(`${tranche.id}.proRata`, `${prefix} pro-rata rights`, "select", { kind: "tranche", trancheId: tranche.id, key: "proRata" }, "Pro-rata/side-letter rights are not fully sourced.", {
+            priority: "SAFE / note terms",
             choices: [["false", "No"], ["true", "Yes"]]
           }));
         } else if (["option", "warrant"].includes(tranche.type)) {
-          fields.push(setupField(`${tranche.id}.strikePrice`, `${prefix} strike / exercise price`, "number", { kind: "tranche", trancheId: tranche.id, key: "strikePrice" }, "Strike or exercise price is not fully sourced.", { step: "0.0001" }));
-          fields.push(setupField(`${tranche.id}.vestedPct`, `${prefix} vested %`, "number", { kind: "tranche", trancheId: tranche.id, key: "vestedPct" }, "Vesting percentage is not fully sourced.", { step: "0.1" }));
+          fields.push(setupField(`${tranche.id}.strikePrice`, `${prefix} strike / exercise price`, "number", { kind: "tranche", trancheId: tranche.id, key: "strikePrice" }, "Strike or exercise price is not fully sourced.", { priority: "Option / warrant terms", step: "0.0001" }));
+          fields.push(setupField(`${tranche.id}.vestedPct`, `${prefix} vested %`, "number", { kind: "tranche", trancheId: tranche.id, key: "vestedPct" }, "Vesting percentage is not fully sourced.", { priority: "Option / warrant terms", step: "0.1" }));
         } else if (tranche.type === "priced") {
-          fields.push(setupField(`${tranche.id}.liqMultiple`, `${prefix} liquidation preference multiple`, "number", { kind: "tranche", trancheId: tranche.id, key: "liqMultiple" }, "Liquidation preference multiple is not fully sourced.", { step: "0.1" }));
-          fields.push(setupField(`${tranche.id}.seniority`, `${prefix} seniority rank`, "number", { kind: "tranche", trancheId: tranche.id, key: "seniority" }, "Seniority rank is not fully sourced.", { step: "1" }));
+          fields.push(setupField(`${tranche.id}.liqMultiple`, `${prefix} liquidation preference multiple`, "number", { kind: "tranche", trancheId: tranche.id, key: "liqMultiple" }, "Liquidation preference multiple is not fully sourced.", { priority: "Exit waterfall terms", step: "0.1" }));
+          fields.push(setupField(`${tranche.id}.seniority`, `${prefix} seniority rank`, "number", { kind: "tranche", trancheId: tranche.id, key: "seniority" }, "Seniority rank is not fully sourced.", { priority: "Exit waterfall terms", step: "1" }));
           fields.push(setupField(`${tranche.id}.participation`, `${prefix} participation`, "select", { kind: "tranche", trancheId: tranche.id, key: "participation" }, "Participation rights are not fully sourced.", {
+            priority: "Exit waterfall terms",
             choices: [["non", "Non-participating"], ["full", "Fully participating"], ["common", "Common/as-converted only"]]
           }));
         } else if (tranche.type === "common") {
-          fields.push(setupField(`${tranche.id}.shares`, `${prefix} confirmed shares held`, "number", { kind: "tranche", trancheId: tranche.id, key: "shares" }, "The legal document conflicts with or does not cleanly match the SOI share count.", { step: "1" }));
+          fields.push(setupField(`${tranche.id}.shares`, `${prefix} confirmed shares held`, "number", { kind: "tranche", trancheId: tranche.id, key: "shares" }, "The legal document conflicts with or does not cleanly match the SOI share count.", { priority: "Ownership accuracy", step: "1" }));
         }
       });
     });
 
     return fields;
+  }
+
+  function groupedSetupFields(fields) {
+    return fields.reduce((groups, field) => {
+      groups[field.priority] ||= [];
+      groups[field.priority].push(field);
+      return groups;
+    }, {});
   }
 
   function setupInputHtml(field) {
@@ -787,12 +918,20 @@
       return;
     }
     $("setupCount").textContent = `${fields.length} fields`;
-    $("setupFields").innerHTML = fields.map((field) => `
-      <label class="setup-field">
-        <span>${escapeHtml(field.label)}</span>
-        ${setupInputHtml(field)}
-        <small>${escapeHtml(field.note)}</small>
-      </label>
+    const groups = groupedSetupFields(fields);
+    $("setupFields").innerHTML = Object.entries(groups).map(([group, groupFields]) => `
+      <section class="setup-group">
+        <h3>${escapeHtml(group)}</h3>
+        <div class="setup-group-grid">
+          ${groupFields.map((field) => `
+            <label class="setup-field">
+              <span>${escapeHtml(field.label)}</span>
+              ${setupInputHtml(field)}
+              <small>${escapeHtml(field.note)}</small>
+            </label>
+          `).join("")}
+        </div>
+      </section>
     `).join("");
     document.body.classList.add("setup-active");
     gate.classList.remove("hidden");
@@ -946,7 +1085,7 @@
         ${items.map((item) => `
           <div class="change-item">
             <div>
-              <strong>${escapeHtml(item.title)}</strong>
+              <strong>${escapeHtml(item.title)} <span class="change-intent ${intentClass(item.intent)}">${escapeHtml(item.intent)}</span></strong>
               <span>${escapeHtml(item.detail)}</span>
             </div>
             <button type="button" data-revert-change="${escapeHtml(item.key)}">Revert</button>
@@ -1056,6 +1195,17 @@
     return value;
   }
 
+  function columnIntent(column) {
+    if (!column.editable) return "Calculated output";
+    if (column.target === "scenarioValuation" || column.target === "scenarioEvent") return "Hypothetical lever";
+    if (column.target === "company" || column.target === "aggregate") return "Current-book data";
+    return "Reference";
+  }
+
+  function intentClass(intent) {
+    return intent.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  }
+
   function masterInputValue(value) {
     if (value === "" || value === null || value === undefined || Number.isNaN(value)) return "";
     const numberValue = Number(value);
@@ -1068,7 +1218,8 @@
     const rowEdited = rowHasMasterEdits(company);
     const edited = editedMasterCells.has(key);
     const affected = !edited && rowEdited && column.affected;
-    const classes = [edited ? "edited-cell" : "", affected ? "affected-cell" : ""].filter(Boolean).join(" ");
+    const intent = columnIntent(column);
+    const classes = [`intent-${intentClass(intent)}`, edited ? "edited-cell" : "", affected ? "affected-cell" : ""].filter(Boolean).join(" ");
     const value = column.value(context);
     if (column.fixed) return `<td class="${classes}"><span class="readonly">${escapeHtml(value)}</span></td>`;
     if (!column.editable) return `<td class="${classes}"><span class="readonly">${escapeHtml(formatMasterValue(column, value))}</span></td>`;
@@ -1078,12 +1229,12 @@
       const options = column.choices.map(([choiceValue, label]) => (
         `<option value="${escapeHtml(choiceValue)}" ${String(choiceValue) === String(value) ? "selected" : ""}>${escapeHtml(label)}</option>`
       )).join("");
-      return `<td class="${classes}"><select data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}"><option value="">Mixed</option>${options}</select></td>`;
+      return `<td class="${classes}"><select title="${escapeHtml(intent)}" data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}"><option value="">Mixed</option>${options}</select></td>`;
     }
     if (column.kind === "month") {
-      return `<td class="${classes}"><input data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}" type="month" value="${escapeHtml(masterInputValue(value))}" /></td>`;
+      return `<td class="${classes}"><input title="${escapeHtml(intent)}" data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}" type="month" value="${escapeHtml(masterInputValue(value))}" /></td>`;
     }
-    return `<td class="${classes}"><input data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}" type="number" step="${column.step || "any"}" value="${escapeHtml(masterInputValue(value))}" /></td>`;
+    return `<td class="${classes}"><input title="${escapeHtml(intent)}" data-master-input="${escapeHtml(column.id)}" data-company-id="${escapeHtml(company.id)}" type="number" step="${column.step || "any"}" value="${escapeHtml(masterInputValue(value))}" /></td>`;
   }
 
   function groupedMasterHeaders(columns) {
@@ -1110,7 +1261,7 @@
           ${groupedMasterHeaders(columns).map((group) => `<th class="master-group-heading ${group.fixed ? "sticky-left" : ""}" colspan="${group.count}">${escapeHtml(group.label)}</th>`).join("")}
         </tr>
         <tr class="master-column-row">
-          ${columns.map((column) => `<th class="master-column-heading">${escapeHtml(column.label)}</th>`).join("")}
+          ${columns.map((column) => `<th class="master-column-heading">${escapeHtml(column.label)}<span class="column-intent">${escapeHtml(columnIntent(column))}</span></th>`).join("")}
         </tr>
       </thead>
       <tbody>
@@ -1207,10 +1358,11 @@
       <div class="two-col">
         <div class="section">
           <h3>Current capitalization</h3>
-          <div class="form-grid">
-            <label>Current shares held<input data-company-field="shares" type="number" value="${company.shares || 0}" /></label>
-            <label>${renderCompanyFieldLabel(company, "fdShares", "Fully diluted shares")}<input data-company-field="fdShares" type="number" value="${company.fdShares || 0}" /></label>
-            <label>${renderCompanyFieldLabel(company, "ownershipPct", "Ownership %")}<input data-company-field="ownershipPct" type="number" step="0.1" value="${company.ownershipPct || 0}" /></label>
+          <p class="muted">Read-only current book data. Model future changes in the Future Round, Secondary, Exit tabs, or the hypothetical columns in Master Table.</p>
+          <div class="readonly-grid">
+            <div class="readonly-field"><span>Current shares held</span><strong>${number(company.shares || 0)}</strong></div>
+            <div class="readonly-field"><span>${renderCompanyFieldLabel(company, "fdShares", "Fully diluted shares")}</span><strong>${number(company.fdShares || 0)}</strong></div>
+            <div class="readonly-field"><span>${renderCompanyFieldLabel(company, "ownershipPct", "Ownership %")}</span><strong>${company.ownershipPct || 0}%</strong></div>
           </div>
         </div>
         <div class="section">
@@ -1222,6 +1374,7 @@
           </div>
         </div>
       </div>
+      ${renderDataQualityPanel(company)}
       <div class="section">
         <h3>Tranches and liquidation preferences</h3>
         <table class="table">
@@ -1236,14 +1389,6 @@
       </div>
       ${renderEvents(company.id)}
     `;
-    document.querySelectorAll("[data-company-field]").forEach((input) => {
-      input.addEventListener("change", () => {
-        company[input.dataset.companyField] = Number(input.value) || 0;
-        companyFieldOrigins[`${company.id}.${input.dataset.companyField}`] = "user";
-        saveCompanyFieldOrigins();
-        render();
-      });
-    });
   }
 
   function renderRound(company) {

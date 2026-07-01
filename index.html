@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Maccabee Ventures Fund II Scenario Model</title>
-    <link rel="stylesheet" href="./styles.css?v=change-summary-1" />
+    <link rel="stylesheet" href="./styles.css?v=confidence-ux-1" />
   </head>
   <body>
     <main id="app">
@@ -92,6 +92,9 @@
         <div class="table-legend">
           <span><i class="legend-edit"></i> Edited by user</span>
           <span><i class="legend-affected"></i> Affected by edit</span>
+          <span><i class="legend-current"></i> Current-book data</span>
+          <span><i class="legend-hypothetical"></i> Hypothetical lever</span>
+          <span><i class="legend-output"></i> Calculated output</span>
         </div>
         <div class="master-table-wrap">
           <table id="masterTable" class="master-table"></table>
@@ -108,7 +111,7 @@
           </div>
           <span id="setupCount" class="setup-count"></span>
         </div>
-        <p class="setup-copy">These fields were not explicitly sourced from the SOI or legal documents. Fill in anything you know; blanks will use default assumptions and be marked with an asterisk.</p>
+        <p class="setup-copy">The model can run with defaults. Add only the terms you know; anything left blank stays marked as an assumption so users can see where precision is lower.</p>
         <form id="setupForm">
           <div id="setupFields" class="setup-fields"></div>
           <div class="setup-actions">
@@ -118,8 +121,8 @@
       </div>
     </div>
 
-    <script src="./src/data.js?v=change-summary-1"></script>
-    <script src="./src/model.js?v=change-summary-1"></script>
-    <script src="./src/app.js?v=change-summary-1"></script>
+    <script src="./src/data.js?v=confidence-ux-1"></script>
+    <script src="./src/model.js?v=confidence-ux-1"></script>
+    <script src="./src/app.js?v=confidence-ux-1"></script>
   </body>
 </html>
