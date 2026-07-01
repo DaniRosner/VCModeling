@@ -1541,7 +1541,6 @@
           </div>
         </div>
       </div>
-      ${renderDataQualityPanel(company)}
       <div class="section">
         <h3>Tranches and liquidation preferences</h3>
         <table class="table">
@@ -1554,6 +1553,7 @@
             </tr>`).join("")}</tbody>
         </table>
       </div>
+      ${renderDataQualityPanel(company)}
       ${renderEvents(company.id)}
     `;
   }
