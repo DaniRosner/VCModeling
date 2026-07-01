@@ -21,6 +21,7 @@
   let selectedCompanyId = seed.companies[0].id;
   let activeTab = "baseline";
   let activeView = "company";
+  let activeQualityFilter = "all";
   let visibleMasterColumns = loadVisibleMasterColumns();
   let editedMasterCells = new Set();
   let masterInputTimers = new Map();
@@ -816,6 +817,168 @@
     `;
   }
 
+  function qualityStatusRank(status) {
+    const ranks = {
+      Sourced: 1,
+      "User supplied": 2,
+      Assumption: 3,
+      "Needs review": 4
+    };
+    return ranks[status] || 0;
+  }
+
+  function worstQualityStatus(items) {
+    return items.reduce((worst, item) => (
+      qualityStatusRank(item.level) > qualityStatusRank(worst) ? item.level : worst
+    ), "Sourced");
+  }
+
+  function companyOverallQuality(company) {
+    const items = [
+      companyMetricQuality(company, "shares"),
+      companyMetricQuality(company, "fdShares"),
+      companyMetricQuality(company, "ownershipPct"),
+      ...company.tranches.map((tranche) => trancheQuality(tranche))
+    ];
+    return worstQualityStatus(items);
+  }
+
+  function qualityGroupStatus(company, types) {
+    const rows = company.tranches.filter((tranche) => types.includes(tranche.type)).map((tranche) => trancheQuality(tranche));
+    if (!rows.length) return { level: "Sourced", note: "No securities in this category." };
+    return {
+      level: worstQualityStatus(rows),
+      note: rows.filter((row) => row.level !== "Sourced").map((row) => row.note).slice(0, 2).join(" ") || "Terms are supported by available materials."
+    };
+  }
+
+  function qualityCount(items, statuses) {
+    const wanted = new Set(statuses);
+    return items.filter((item) => wanted.has(item.level)).length;
+  }
+
+  function qualityNotes(items) {
+    const notes = items
+      .filter((item) => item.level === "Needs review" || item.level === "Assumption")
+      .map((item) => item.note)
+      .filter(Boolean);
+    if (!notes.length) return "No missing or assumed data flagged.";
+    return [...new Set(notes)].slice(0, 3).join(" ");
+  }
+
+  function companyQualityRows() {
+    return seed.companies.map((company) => {
+      const shares = companyMetricQuality(company, "shares");
+      const fdShares = companyMetricQuality(company, "fdShares");
+      const ownership = companyMetricQuality(company, "ownershipPct");
+      const priced = qualityGroupStatus(company, ["priced", "common"]);
+      const safe = qualityGroupStatus(company, ["safe-post", "safe-pre", "note"]);
+      const option = qualityGroupStatus(company, ["option", "warrant"]);
+      const tranches = company.tranches.map((tranche) => trancheQuality(tranche));
+      const items = [shares, fdShares, ownership, ...tranches];
+      return {
+        company,
+        overall: companyOverallQuality(company),
+        missingCount: qualityCount(items, ["Assumption", "Needs review"]),
+        assumptionCount: qualityCount(items, ["Assumption"]),
+        userSuppliedCount: qualityCount(items, ["User supplied"]),
+        shares,
+        fdShares,
+        ownership,
+        priced,
+        safe,
+        option,
+        notes: qualityNotes(items)
+      };
+    });
+  }
+
+  function qualityFilterMatches(row) {
+    if (activeQualityFilter === "all") return true;
+    if (activeQualityFilter === "review") return row.overall === "Needs review";
+    if (activeQualityFilter === "assumption") return row.assumptionCount > 0;
+    if (activeQualityFilter === "user") return row.overall === "User supplied" || row.userSuppliedCount > 0;
+    if (activeQualityFilter === "sourced") return row.overall === "Sourced";
+    return true;
+  }
+
+  function renderDataQualitySummary() {
+    const rows = companyQualityRows();
+    const totals = [
+      ["Total companies", rows.length],
+      ["Fully sourced", rows.filter((row) => row.overall === "Sourced").length],
+      ["With assumptions", rows.filter((row) => row.assumptionCount > 0).length],
+      ["Needs review", rows.filter((row) => row.overall === "Needs review").length],
+      ["User-supplied overrides", rows.reduce((sum, row) => sum + row.userSuppliedCount, 0)]
+    ];
+    $("qualitySummary").innerHTML = totals.map(([label, value]) => `
+      <div class="quality-summary-card">
+        <span>${escapeHtml(label)}</span>
+        <strong>${number(value)}</strong>
+      </div>
+    `).join("");
+  }
+
+  function renderQualityFilters() {
+    const filters = [
+      ["all", "All"],
+      ["review", "Needs review"],
+      ["assumption", "Assumptions"],
+      ["user", "User supplied"],
+      ["sourced", "Sourced"]
+    ];
+    $("qualityFilters").innerHTML = filters.map(([id, label]) => `
+      <button class="quality-filter ${activeQualityFilter === id ? "active" : ""}" data-quality-filter="${escapeHtml(id)}" type="button">${escapeHtml(label)}</button>
+    `).join("");
+  }
+
+  function renderQualityStatusCell(item) {
+    return `<td title="${escapeHtml(item.note || "")}">${qualityBadge(item.level)}</td>`;
+  }
+
+  function renderDataQualityTable() {
+    renderDataQualitySummary();
+    renderQualityFilters();
+    const rows = companyQualityRows().filter(qualityFilterMatches);
+    $("dataQualityTable").innerHTML = `
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>Overall</th>
+          <th>Missing / Assumed</th>
+          <th>Shares Held</th>
+          <th>FD Shares</th>
+          <th>Ownership %</th>
+          <th>Priced Equity Terms</th>
+          <th>SAFE / Note Terms</th>
+          <th>Option / Warrant Terms</th>
+          <th>Key Notes</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td class="quality-company-cell">
+              <strong>${escapeHtml(row.company.name)}</strong>
+              <span>${escapeHtml(row.company.industry || "Portfolio company")}</span>
+            </td>
+            <td>${qualityBadge(row.overall)}</td>
+            <td><strong>${number(row.missingCount)}</strong></td>
+            ${renderQualityStatusCell(row.shares)}
+            ${renderQualityStatusCell(row.fdShares)}
+            ${renderQualityStatusCell(row.ownership)}
+            ${renderQualityStatusCell(row.priced)}
+            ${renderQualityStatusCell(row.safe)}
+            ${renderQualityStatusCell(row.option)}
+            <td class="quality-notes-cell">${escapeHtml(row.notes)}</td>
+            <td><button class="secondary quality-review-btn" data-review-company="${escapeHtml(row.company.id)}" type="button">Review</button></td>
+          </tr>
+        `).join("") || `<tr><td colspan="11" class="quality-empty">No companies match this filter.</td></tr>`}
+      </tbody>
+    `;
+  }
+
   function setupField(id, label, type, target, note, options = {}) {
     return {
       id,
@@ -1147,12 +1310,16 @@
     });
     const companyHidden = activeView !== "company";
     const masterHidden = activeView !== "master";
+    const qualityHidden = activeView !== "quality";
     $("companyWorkspace").classList.toggle("hidden", companyHidden);
     $("masterWorkspace").classList.toggle("hidden", masterHidden);
+    $("dataQualityWorkspace").classList.toggle("hidden", qualityHidden);
     $("companyWorkspace").hidden = companyHidden;
     $("masterWorkspace").hidden = masterHidden;
+    $("dataQualityWorkspace").hidden = qualityHidden;
     $("companyWorkspace").style.display = companyHidden ? "none" : "";
     $("masterWorkspace").style.display = masterHidden ? "none" : "";
+    $("dataQualityWorkspace").style.display = qualityHidden ? "none" : "";
   }
 
   function visibleColumns() {
@@ -1587,6 +1754,20 @@
         render();
         return;
       }
+      const qualityFilter = event.target.dataset.qualityFilter;
+      if (qualityFilter) {
+        activeQualityFilter = qualityFilter;
+        renderDataQualityTable();
+        return;
+      }
+      const reviewCompany = event.target.dataset.reviewCompany;
+      if (reviewCompany) {
+        selectedCompanyId = reviewCompany;
+        activeTab = "baseline";
+        activeView = "company";
+        render();
+        return;
+      }
       const revertKey = event.target.dataset.revertChange;
       if (revertKey) {
         revertChange(revertKey);
@@ -1648,6 +1829,7 @@
     renderCompanyList();
     renderCompanyDetail();
     renderMasterTable();
+    renderDataQualityTable();
     renderSetupGate();
   }
 

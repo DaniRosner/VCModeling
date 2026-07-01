@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Maccabee Ventures Fund II Scenario Model</title>
-    <link rel="stylesheet" href="./styles.css?v=confidence-ux-1" />
+    <link rel="stylesheet" href="./styles.css?v=data-quality-1" />
   </head>
   <body>
     <main id="app">
@@ -44,6 +44,7 @@
       <nav class="view-tabs" aria-label="Model views">
         <button class="view-tab active" data-view="company" type="button">ModernView</button>
         <button class="view-tab" data-view="master" type="button">Master Table</button>
+        <button class="view-tab" data-view="quality" type="button">Data Quality</button>
       </nav>
 
       <section id="companyWorkspace" class="workspace">
@@ -100,6 +101,20 @@
           <table id="masterTable" class="master-table"></table>
         </div>
       </section>
+
+      <section id="dataQualityWorkspace" class="data-quality-workspace hidden">
+        <div class="table-toolbar">
+          <div>
+            <p class="eyebrow">Portfolio Audit</p>
+            <h2>Data Quality</h2>
+          </div>
+          <div id="qualityFilters" class="quality-filters" aria-label="Data quality filters"></div>
+        </div>
+        <div id="qualitySummary" class="quality-summary"></div>
+        <div class="quality-table-wrap">
+          <table id="dataQualityTable" class="data-quality-table"></table>
+        </div>
+      </section>
     </main>
 
     <div id="setupGate" class="setup-gate hidden" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
@@ -121,8 +136,8 @@
       </div>
     </div>
 
-    <script src="./src/data.js?v=confidence-ux-1"></script>
-    <script src="./src/model.js?v=confidence-ux-1"></script>
-    <script src="./src/app.js?v=confidence-ux-1"></script>
+    <script src="./src/data.js?v=data-quality-1"></script>
+    <script src="./src/model.js?v=data-quality-1"></script>
+    <script src="./src/app.js?v=data-quality-1"></script>
   </body>
 </html>
