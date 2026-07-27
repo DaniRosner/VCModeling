@@ -10,7 +10,7 @@ Then open http://127.0.0.1:4174/.
 ```
 ## Run In Cloud Via URL
 
-'''https://model.yyweiner.workers.dev
+https://model.yyweiner.workers.dev
 
 ## Deploy to Cloudflare Pages
 
