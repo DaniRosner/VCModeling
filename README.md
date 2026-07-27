@@ -6,18 +6,11 @@ Static browser app for modeling current and pro forma fund/company outcomes.
 
 ```sh
 npm start
+Then open http://127.0.0.1:4174/.
 ```
 ## Run In Cloud Via URL
 
 '''https://model.yyweiner.workers.dev
-'''
-Then open http://127.0.0.1:4174/.
-
-## Test
-
-```sh
-npm test
-```
 
 ## Deploy to Cloudflare Pages
 
