@@ -103,6 +103,44 @@ h3 {
   justify-content: flex-end;
 }
 
+.drive-sync-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: #fbfcfa;
+}
+
+.drive-sync-note {
+  margin: 0;
+}
+
+.drive-sync-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.drive-sync-status span {
+  color: var(--muted);
+}
+
+.drive-sync-message {
+  font-style: italic;
+}
+
+.drive-sync-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 select, input {
   min-height: 38px;
   border: 1px solid var(--line);
@@ -1069,6 +1107,58 @@ body.setup-active main {
 
 .muted {
   color: var(--muted);
+}
+
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.checkbox-inline input {
+  width: auto;
+  min-height: auto;
+}
+
+.checkbox-row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.tranche-type-group {
+  margin-top: 10px;
+}
+
+.edit-position-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.edit-position-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.edit-position-row-actions button:last-child {
+  border-color: var(--red);
+  color: var(--red);
+  background: white;
+}
+
+.danger-zone {
+  border-color: var(--red);
+}
+
+.danger {
+  border-color: var(--red);
+  color: var(--red);
+  background: white;
 }
 
 @media (max-width: 1100px) {

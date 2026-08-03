@@ -20,6 +20,8 @@
         </div>
       </section>
 
+      <section id="driveSyncBar" class="drive-sync-bar" aria-label="Google Drive sync"></section>
+
       <section class="assumptions" aria-label="Fund assumptions">
         <label><span data-assumption-label="capitalCalled">Capital called</span><input id="capitalCalled" type="number" min="0" step="10000" /></label>
         <label><span>Management fee %</span><input id="managementFeePct" type="number" value="2.5" disabled /></label>
@@ -51,6 +53,7 @@
         <aside class="company-list">
           <div class="list-header">
             <h2>Companies</h2>
+            <button id="addCompanyBtn" type="button" class="secondary">+ Add Company</button>
             <input id="companySearch" type="search" placeholder="Search" />
           </div>
           <div id="companyRows"></div>
@@ -70,12 +73,14 @@
             <button class="tab" data-tab="round" type="button">Future Round</button>
             <button class="tab" data-tab="secondary" type="button">Secondary</button>
             <button class="tab" data-tab="exit" type="button">Exit / Write-off</button>
+            <button class="tab" data-tab="editPosition" type="button">Edit Position</button>
           </div>
 
           <div id="baselinePanel" class="panel active"></div>
           <div id="roundPanel" class="panel"></div>
           <div id="secondaryPanel" class="panel"></div>
           <div id="exitPanel" class="panel"></div>
+          <div id="editPositionPanel" class="panel"></div>
         </section>
       </section>
 
@@ -136,6 +141,10 @@
       </div>
     </div>
 
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <script src="./src/drive-config.js?v=data-quality-1"></script>
+    <script src="./src/drive-sync.js?v=data-quality-1"></script>
     <script src="./src/data.js?v=data-quality-1"></script>
     <script src="./src/model.js?v=data-quality-1"></script>
     <script src="./src/app.js?v=data-quality-1"></script>

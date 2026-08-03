@@ -2,6 +2,7 @@
   const seed = window.SEED_PORTFOLIO;
   const model = window.VCModel;
   const storageKey = "maccabee-fund-ii-scenarios-v1";
+  const companiesKey = "maccabee-fund-ii-companies-v1";
   const assumptionsKey = "maccabee-fund-ii-assumptions-v1";
   const assumptionOriginsKey = "maccabee-fund-ii-assumption-origins-v1";
   const companyFieldOriginsKey = "maccabee-fund-ii-company-field-origins-v1";
@@ -25,6 +26,11 @@
   let visibleMasterColumns = loadVisibleMasterColumns();
   let editedMasterCells = new Set();
   let masterInputTimers = new Map();
+  let editingTrancheId = null;
+  let driveStatusMessage = "";
+  let drivePushTimer = null;
+  let driveSyncBusy = false;
+  let suppressDrivePush = false;
 
   const $ = (id) => document.getElementById(id);
 
@@ -32,6 +38,7 @@
   const baselineAssumptionOrigins = {};
   const baselineCompanyFieldOrigins = {};
   const baselineCompanies = model.clone(seed.companies);
+  applyPersistedCompanies();
   applySetupInputs();
 
   function prepareStorage() {
@@ -73,6 +80,7 @@
 
   function saveAssumptions() {
     localStorage.setItem(assumptionsKey, JSON.stringify(assumptions));
+    scheduleDrivePush();
   }
 
   function loadAssumptionOrigins() {
@@ -81,6 +89,7 @@
 
   function saveAssumptionOrigins() {
     localStorage.setItem(assumptionOriginsKey, JSON.stringify(assumptionOrigins));
+    scheduleDrivePush();
   }
 
   function loadCompanyFieldOrigins() {
@@ -89,6 +98,7 @@
 
   function saveCompanyFieldOrigins() {
     localStorage.setItem(companyFieldOriginsKey, JSON.stringify(companyFieldOrigins));
+    scheduleDrivePush();
   }
 
   function defaultMasterColumnIds() {
@@ -101,6 +111,7 @@
 
   function saveVisibleMasterColumns() {
     localStorage.setItem(masterColumnsKey, JSON.stringify(visibleMasterColumns));
+    scheduleDrivePush();
   }
 
   function loadSetupInputs() {
@@ -109,6 +120,7 @@
 
   function saveSetupInputs() {
     localStorage.setItem(setupInputsKey, JSON.stringify(setupInputs));
+    scheduleDrivePush();
   }
 
   function setupIsComplete() {
@@ -151,6 +163,22 @@
 
   function saveScenarios() {
     localStorage.setItem(storageKey, JSON.stringify(scenarios));
+    scheduleDrivePush();
+  }
+
+  function loadCompanies() {
+    return readJson(companiesKey, null);
+  }
+
+  function saveCompanies() {
+    localStorage.setItem(companiesKey, JSON.stringify(seed.companies));
+    scheduleDrivePush();
+  }
+
+  function applyPersistedCompanies() {
+    const saved = loadCompanies();
+    if (!saved) return;
+    seed.companies.splice(0, seed.companies.length, ...model.clone(saved));
   }
 
   function baselineCompany(companyId) {
@@ -249,8 +277,17 @@
 
     seed.companies.forEach((company) => {
       const originalCompany = baselineCompany(company.id);
-      if (!originalCompany) return;
+      if (!originalCompany) {
+        items.push({
+          key: changeKey(["addedCompany", company.id]),
+          intent: "Current-book data",
+          title: `${company.name} - New company`,
+          detail: "Added to the portfolio"
+        });
+        return;
+      }
       ["shares", "fdShares", "ownershipPct"].forEach((field) => {
+        if (field === "shares" && companyFieldOrigins[`${company.id}.shares`] !== "user") return;
         if (valuesEqual(originalCompany[field], company[field])) return;
         items.push({
           key: changeKey(["company", company.id, field]),
@@ -261,7 +298,15 @@
       });
       company.tranches.forEach((tranche) => {
         const originalTranche = baselineTranche(tranche.id);
-        if (!originalTranche) return;
+        if (!originalTranche) {
+          items.push({
+            key: changeKey(["addedTranche", company.id, tranche.id]),
+            intent: "Current-book data",
+            title: `${company.name} - ${tranche.name} - New security`,
+            detail: `${labelType(tranche.type)} added (${money(tranche.cost || 0)}, ${number(tranche.shares || 0)} shares)`
+          });
+          return;
+        }
         trackedTrancheFields(tranche).forEach((field) => {
           if (valuesEqual(originalTranche[field], tranche[field])) return;
           items.push({
@@ -271,6 +316,27 @@
             detail: changedFromTo(originalTranche[field], tranche[field])
           });
         });
+      });
+      const currentTrancheIds = new Set(company.tranches.map((tranche) => tranche.id));
+      originalCompany.tranches.forEach((tranche) => {
+        if (currentTrancheIds.has(tranche.id)) return;
+        items.push({
+          key: changeKey(["deletedTranche", company.id, tranche.id]),
+          intent: "Current-book data",
+          title: `${company.name} - ${tranche.name} - Removed`,
+          detail: `${labelType(tranche.type)} removed (${money(tranche.cost || 0)}, ${number(tranche.shares || 0)} shares)`
+        });
+      });
+    });
+
+    const currentCompanyIds = new Set(seed.companies.map((company) => company.id));
+    baselineCompanies.forEach((company) => {
+      if (currentCompanyIds.has(company.id)) return;
+      items.push({
+        key: changeKey(["deletedCompany", company.id]),
+        intent: "Current-book data",
+        title: `${company.name} - Company removed`,
+        detail: "Removed from the portfolio"
       });
     });
 
@@ -337,6 +403,7 @@
         restoreOrigin(companyFieldOrigins, baselineCompanyFieldOrigins, `${id}.${subId}`);
         deleteSetupValue("company", id, subId);
         saveCompanyFieldOrigins();
+        saveCompanies();
         clearMasterEditHighlightsFor(id);
       }
     } else if (type === "tranche") {
@@ -348,7 +415,49 @@
         restoreTrancheMetadataIfClean(tranche);
         deleteSetupValue("tranche", subId, field);
         refreshCompanyTotals(company);
+        saveCompanies();
         clearMasterEditHighlightsFor(id);
+      }
+    } else if (type === "addedTranche") {
+      const company = seed.companies.find((item) => item.id === id);
+      if (company) {
+        const index = company.tranches.findIndex((tranche) => tranche.id === subId);
+        if (index >= 0) company.tranches.splice(index, 1);
+        if (editingTrancheId === subId) editingTrancheId = null;
+        refreshCompanyTotals(company);
+        saveCompanies();
+        clearMasterEditHighlightsFor(id);
+      }
+    } else if (type === "deletedTranche") {
+      const company = seed.companies.find((item) => item.id === id);
+      const original = baselineCompany(id);
+      const originalTranche = original?.tranches.find((tranche) => tranche.id === subId);
+      if (company && originalTranche && !company.tranches.some((tranche) => tranche.id === subId)) {
+        company.tranches.push(model.clone(originalTranche));
+        refreshCompanyTotals(company);
+        saveCompanies();
+        clearMasterEditHighlightsFor(id);
+      }
+    } else if (type === "addedCompany") {
+      if (seed.companies.length <= 1) {
+        alert("The portfolio needs at least one company - this is the last one, so it can't be reverted away.");
+      } else {
+        const index = seed.companies.findIndex((item) => item.id === id);
+        if (index >= 0) seed.companies.splice(index, 1);
+        if (selectedCompanyId === id) {
+          selectedCompanyId = seed.companies[0].id;
+          activeTab = "baseline";
+        }
+        if (editingTrancheId && !seed.companies.some((company) => company.tranches.some((tranche) => tranche.id === editingTrancheId))) {
+          editingTrancheId = null;
+        }
+        saveCompanies();
+      }
+    } else if (type === "deletedCompany") {
+      const original = baselineCompany(id);
+      if (original && !seed.companies.some((company) => company.id === id)) {
+        seed.companies.push(model.clone(original));
+        saveCompanies();
       }
     } else if (type === "event") {
       const events = eventsFor(id);
@@ -374,6 +483,7 @@
     saveCompanyFieldOrigins();
     saveSetupInputs();
     saveScenarios();
+    saveCompanies();
     render();
   }
 
@@ -1274,6 +1384,7 @@
     document.querySelectorAll("[data-company]").forEach((button) => {
       button.addEventListener("click", () => {
         selectedCompanyId = button.dataset.company;
+        editingTrancheId = null;
         render();
       });
     });
@@ -1292,6 +1403,7 @@
     renderRound(company);
     renderSecondary(company);
     renderExit(company);
+    renderEditPosition(company);
     document.querySelectorAll(".tab").forEach((tab) => {
       tab.classList.toggle("active", tab.dataset.tab === activeTab);
     });
@@ -1485,8 +1597,10 @@
         companyFieldOrigins[`${company.id}.${column.key}`] = "user";
       }
       saveCompanyFieldOrigins();
+      saveCompanies();
     } else if (column.target === "aggregate") {
       setAggregateField(company, column.aggregate, column.key, value);
+      saveCompanies();
     } else if (column.target === "scenarioValuation") {
       upsertValuationEvent(company.id, value);
     } else if (column.target === "scenarioEvent") {
@@ -1646,6 +1760,282 @@
     }));
   }
 
+  function trancheTypeOptions() {
+    return [
+      ["priced", "Priced equity (preferred)"],
+      ["common", "Common stock"],
+      ["safe-pre", "Pre-money SAFE"],
+      ["safe-post", "Post-money SAFE"],
+      ["note", "Convertible note"],
+      ["option", "Options"],
+      ["warrant", "Warrants"]
+    ];
+  }
+
+  function editingTranche(company) {
+    if (!editingTrancheId) return null;
+    return company.tranches.find((tranche) => tranche.id === editingTrancheId) || null;
+  }
+
+  function updateTrancheTypeGroups(selectedType) {
+    document.querySelectorAll("[data-tranche-type-group]").forEach((group) => {
+      const types = group.dataset.trancheTypeGroup.split(",");
+      group.classList.toggle("hidden", !types.includes(selectedType));
+    });
+  }
+
+  function readTrancheForm() {
+    const type = $("tPType").value;
+    const tranche = {
+      type,
+      name: $("tPName").value.trim() || labelType(type),
+      date: $("tPDate").value || seed.asOfDate,
+      shares: Number($("tPShares").value) || 0,
+      cost: Number($("tPCost").value) || 0,
+      value: Number($("tPValue").value) || 0,
+      advisorShare: $("tPAdvisor").checked
+    };
+    if (["priced", "common"].includes(type)) {
+      tranche.price = Number($("tPPrice").value) || 0;
+      tranche.seniority = Number($("tPSeniority").value) || 1;
+      tranche.liqMultiple = Number($("tPLiqMultiple").value) || 0;
+      tranche.participation = $("tPParticipation").value;
+      const vestingMonths = Number($("tPVestingMonths").value);
+      if (vestingMonths) tranche.vestingMonths = vestingMonths;
+    }
+    if (["safe-pre", "safe-post", "note"].includes(type)) {
+      tranche.valuationCap = Number($("tPCap").value) || 0;
+      tranche.discountPct = Number($("tPDiscount").value) || 0;
+      tranche.cashOutMultiple = Number($("tPCashOut").value) || 1;
+      tranche.proRata = $("tPProRata").checked;
+      tranche.mfn = $("tPMfn").checked;
+      const qualifiedFinancingMin = Number($("tPQfMin").value);
+      if (qualifiedFinancingMin) tranche.qualifiedFinancingMin = qualifiedFinancingMin;
+      const interestRatePct = Number($("tPInterest").value);
+      if (interestRatePct) tranche.interestRatePct = interestRatePct;
+    }
+    if (["option", "warrant"].includes(type)) {
+      tranche.strikePrice = Number($("tPStrike").value) || 0;
+      const vestedPct = Number($("tPVestedPct").value);
+      tranche.vestedPct = Number.isFinite(vestedPct) && $("tPVestedPct").value !== "" ? vestedPct : 100;
+      tranche.seniority = 99;
+      tranche.liqMultiple = 0;
+      tranche.participation = "common";
+    }
+    return tranche;
+  }
+
+  function saveTrancheForm(company) {
+    const values = readTrancheForm();
+    if (editingTrancheId) {
+      const tranche = company.tranches.find((item) => item.id === editingTrancheId);
+      if (tranche) {
+        Object.keys(tranche).forEach((key) => {
+          if (!["id", "source", "simplifyingAssumption"].includes(key)) delete tranche[key];
+        });
+        Object.assign(tranche, values);
+        tranche.source = `User input supplied in Edit Position tab; original note: ${tranche.source || "unsourced"}`;
+        delete tranche.simplifyingAssumption;
+      }
+      editingTrancheId = null;
+    } else {
+      values.id = `${company.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      values.source = "User input supplied in Edit Position tab";
+      company.tranches.push(values);
+    }
+    refreshCompanyTotals(company);
+    saveCompanies();
+    render();
+  }
+
+  function deleteTranche(company, trancheId) {
+    if (!confirm("Delete this security? This cannot be undone.")) return;
+    const index = company.tranches.findIndex((tranche) => tranche.id === trancheId);
+    if (index >= 0) company.tranches.splice(index, 1);
+    if (editingTrancheId === trancheId) editingTrancheId = null;
+    refreshCompanyTotals(company);
+    saveCompanies();
+    render();
+  }
+
+  function slugify(name) {
+    const base = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    return base || "company";
+  }
+
+  function uniqueCompanyId(name) {
+    const base = slugify(name);
+    let id = base;
+    let suffix = 2;
+    while (seed.companies.some((company) => company.id === id)) {
+      id = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    return id;
+  }
+
+  function addCompany() {
+    const name = prompt("New company name");
+    if (!name || !name.trim()) return;
+    const company = {
+      id: uniqueCompanyId(name.trim()),
+      name: name.trim(),
+      shares: 0,
+      cost: 0,
+      value: 0,
+      ownershipPct: 0,
+      fdShares: 0,
+      tranches: []
+    };
+    seed.companies.push(company);
+    selectedCompanyId = company.id;
+    activeView = "company";
+    activeTab = "editPosition";
+    editingTrancheId = null;
+    saveCompanies();
+    render();
+  }
+
+  function deleteCompany(companyId) {
+    if (seed.companies.length <= 1) {
+      alert("The portfolio needs at least one company - add a replacement before deleting the last one.");
+      return;
+    }
+    const company = seed.companies.find((item) => item.id === companyId);
+    if (!company) return;
+    if (!confirm(`Delete ${company.name} entirely, including all of its securities? This cannot be undone.`)) return;
+    const index = seed.companies.findIndex((item) => item.id === companyId);
+    seed.companies.splice(index, 1);
+    if (selectedCompanyId === companyId) {
+      selectedCompanyId = seed.companies[0].id;
+      activeTab = "baseline";
+    }
+    editingTrancheId = null;
+    saveCompanies();
+    render();
+  }
+
+  function renderEditPosition(company) {
+    const editing = editingTranche(company);
+    const defaultType = editing?.type || "priced";
+    const rows = company.tranches.map((tranche) => `
+      <tr>
+        <td>${escapeHtml(tranche.name)}</td>
+        <td>${escapeHtml(labelType(tranche.type))}</td>
+        <td>${tranche.date || ""}</td>
+        <td>${number(tranche.shares || 0)}</td>
+        <td>${money(tranche.cost || 0)}</td>
+        <td>${money(tranche.value || 0)}</td>
+        <td>${renderTrancheTerms(tranche)}</td>
+        <td class="edit-position-row-actions">
+          <button type="button" data-edit-tranche="${tranche.id}">Edit</button>
+          <button type="button" data-delete-tranche="${tranche.id}">Delete</button>
+        </td>
+      </tr>
+    `).join("");
+
+    $("editPositionPanel").innerHTML = `
+      <div class="section">
+        <h3>Company denominators</h3>
+        <p class="muted">Fully diluted shares and ownership % are cap table denominators, not tied to a single security. Update them here when a new round changes the fully diluted share count.</p>
+        <div class="form-grid">
+          <label>Fully diluted shares<input id="editPositionFdShares" type="number" step="1" value="${company.fdShares || 0}" /></label>
+          <label>Ownership % (used if shares / FD shares aren't both known)<input id="editPositionOwnershipPct" type="number" step="0.01" value="${company.ownershipPct || 0}" /></label>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Securities held</h3>
+        ${company.tranches.length ? `
+          <table class="table">
+            <thead><tr><th>Security</th><th>Type</th><th>Date</th><th>Shares</th><th>Cost</th><th>Value</th><th>Terms</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        ` : `<p class="muted">No securities recorded for this company yet.</p>`}
+      </div>
+
+      <div class="section">
+        <h3>${editing ? "Edit security" : "Add a security"}</h3>
+        <div class="form-grid">
+          <label>Name<input id="tPName" type="text" value="${escapeHtml(editing?.name || "")}" /></label>
+          <label>Security type<select id="tPType">${trancheTypeOptions().map(([value, label]) => `<option value="${value}" ${defaultType === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select></label>
+          <label>Date<input id="tPDate" type="date" value="${editing?.date || ""}" /></label>
+          <label>Shares<input id="tPShares" type="number" step="1" value="${editing?.shares ?? 0}" /></label>
+          <label>Cost<input id="tPCost" type="number" step="1" value="${editing?.cost ?? 0}" /></label>
+          <label>Current value<input id="tPValue" type="number" step="1" value="${editing?.value ?? 0}" /></label>
+        </div>
+        <label class="checkbox-inline"><input id="tPAdvisor" type="checkbox" ${editing?.advisorShare ? "checked" : ""} /><span>Advisor / discounted share (marked at 80% of value)</span></label>
+
+        <div data-tranche-type-group="priced,common" class="form-grid tranche-type-group">
+          <label>Price per share<input id="tPPrice" type="number" step="0.0001" value="${editing?.price ?? 0}" /></label>
+          <label>Seniority rank<input id="tPSeniority" type="number" step="1" value="${editing?.seniority ?? 1}" /></label>
+          <label>Liquidation preference multiple<input id="tPLiqMultiple" type="number" step="0.1" value="${editing?.liqMultiple ?? 1}" /></label>
+          <label>Participation<select id="tPParticipation">
+            <option value="non" ${editing?.participation === "non" ? "selected" : ""}>Non-participating</option>
+            <option value="full" ${editing?.participation === "full" ? "selected" : ""}>Fully participating</option>
+            <option value="common" ${editing?.participation === "common" ? "selected" : ""}>Common/as-converted only</option>
+          </select></label>
+          <label>Vesting months (optional)<input id="tPVestingMonths" type="number" step="1" value="${editing?.vestingMonths ?? ""}" /></label>
+        </div>
+
+        <div data-tranche-type-group="safe-pre,safe-post,note" class="form-grid tranche-type-group">
+          <label>Valuation cap<input id="tPCap" type="number" step="10000" value="${editing?.valuationCap ?? 0}" /></label>
+          <label>Discount %<input id="tPDiscount" type="number" step="0.1" value="${editing?.discountPct ?? 0}" /></label>
+          <label>Cash-out multiple<input id="tPCashOut" type="number" step="0.1" value="${editing?.cashOutMultiple ?? 1}" /></label>
+          <label>Qualified financing minimum (optional)<input id="tPQfMin" type="number" step="10000" value="${editing?.qualifiedFinancingMin ?? ""}" /></label>
+          <label>Interest rate % (notes only)<input id="tPInterest" type="number" step="0.1" value="${editing?.interestRatePct ?? 0}" /></label>
+        </div>
+        <div data-tranche-type-group="safe-pre,safe-post,note" class="tranche-type-group checkbox-row">
+          <label class="checkbox-inline"><input id="tPProRata" type="checkbox" ${editing?.proRata ? "checked" : ""} /><span>Pro-rata rights</span></label>
+          <label class="checkbox-inline"><input id="tPMfn" type="checkbox" ${editing?.mfn ? "checked" : ""} /><span>MFN provision</span></label>
+        </div>
+
+        <div data-tranche-type-group="option,warrant" class="form-grid tranche-type-group">
+          <label>Strike / exercise price<input id="tPStrike" type="number" step="0.0001" value="${editing?.strikePrice ?? 0}" /></label>
+          <label>Vested %<input id="tPVestedPct" type="number" step="0.1" value="${editing?.vestedPct ?? 100}" /></label>
+        </div>
+
+        <div class="edit-position-actions">
+          <button id="savePositionBtn" type="button">${editing ? "Save Changes" : "Add Security"}</button>
+          ${editing ? `<button id="cancelEditPositionBtn" type="button" class="secondary">Cancel</button>` : ""}
+        </div>
+      </div>
+
+      <div class="section danger-zone">
+        <h3>Danger zone</h3>
+        <p class="muted">Removes ${escapeHtml(company.name)} and all of its securities from the portfolio entirely. This cannot be undone.</p>
+        <button id="deleteCompanyBtn" type="button" class="danger">Delete Company</button>
+      </div>
+    `;
+
+    updateTrancheTypeGroups($("tPType").value);
+    $("tPType").addEventListener("change", () => updateTrancheTypeGroups($("tPType").value));
+
+    $("editPositionFdShares").addEventListener("change", () => {
+      company.fdShares = Number($("editPositionFdShares").value) || 0;
+      companyFieldOrigins[`${company.id}.fdShares`] = "user";
+      saveCompanyFieldOrigins();
+      saveCompanies();
+      render();
+    });
+    $("editPositionOwnershipPct").addEventListener("change", () => {
+      company.ownershipPct = Number($("editPositionOwnershipPct").value) || 0;
+      companyFieldOrigins[`${company.id}.ownershipPct`] = "user";
+      saveCompanyFieldOrigins();
+      saveCompanies();
+      render();
+    });
+
+    $("savePositionBtn").addEventListener("click", () => saveTrancheForm(company));
+    if ($("cancelEditPositionBtn")) {
+      $("cancelEditPositionBtn").addEventListener("click", () => {
+        editingTrancheId = null;
+        renderCompanyDetail();
+      });
+    }
+    $("deleteCompanyBtn").addEventListener("click", () => deleteCompany(company.id));
+  }
+
   function renderEvents(companyId) {
     const events = eventsFor(companyId);
     if (!events.length) return `<div class="section"><h3>Scenario events</h3><p class="muted">No hypotheticals for this company in the active scenario.</p></div>`;
@@ -1706,6 +2096,214 @@
     render();
   }
 
+  // ---- Google Drive sync ----
+  // Layered on top of localStorage: everything above already persists locally
+  // on its own. This section mirrors the full app state to/from a single
+  // shared Drive file so two people can see the same data. It stays fully
+  // inert (isConfigured() === false) until src/drive-config.js has a real
+  // OAuth Client ID + API key from Google Cloud Console.
+
+  function driveSnapshot() {
+    return {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      companies: seed.companies,
+      scenarios,
+      activeScenarioId,
+      assumptions,
+      assumptionOrigins,
+      companyFieldOrigins,
+      setupInputs,
+      setupComplete: setupIsComplete(),
+      visibleMasterColumns
+    };
+  }
+
+  function applyDriveSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return;
+    suppressDrivePush = true;
+    try {
+      if (Array.isArray(snapshot.companies)) {
+        seed.companies.splice(0, seed.companies.length, ...model.clone(snapshot.companies));
+        saveCompanies();
+      }
+      if (Array.isArray(snapshot.scenarios) && snapshot.scenarios.length) {
+        scenarios = model.clone(snapshot.scenarios);
+        saveScenarios();
+      }
+      if (snapshot.activeScenarioId && scenarios.some((scenario) => scenario.id === snapshot.activeScenarioId)) {
+        activeScenarioId = snapshot.activeScenarioId;
+      }
+      if (snapshot.assumptions) {
+        Object.keys(assumptions).forEach((key) => delete assumptions[key]);
+        Object.assign(assumptions, model.clone(snapshot.assumptions));
+        saveAssumptions();
+      }
+      if (snapshot.assumptionOrigins) {
+        assumptionOrigins = model.clone(snapshot.assumptionOrigins);
+        saveAssumptionOrigins();
+      }
+      if (snapshot.companyFieldOrigins) {
+        companyFieldOrigins = model.clone(snapshot.companyFieldOrigins);
+        saveCompanyFieldOrigins();
+      }
+      if (snapshot.setupInputs) {
+        setupInputs = model.clone(snapshot.setupInputs);
+        saveSetupInputs();
+      }
+      if (snapshot.setupComplete) setSetupComplete();
+      if (Array.isArray(snapshot.visibleMasterColumns)) {
+        visibleMasterColumns = snapshot.visibleMasterColumns.slice();
+        saveVisibleMasterColumns();
+      }
+    } finally {
+      suppressDrivePush = false;
+    }
+    render();
+  }
+
+  function scheduleDrivePush() {
+    if (suppressDrivePush) return;
+    if (!window.DriveSync || !DriveSync.getStatus().connected || !DriveSync.hasFile()) return;
+    clearTimeout(drivePushTimer);
+    drivePushTimer = setTimeout(() => {
+      drivePushTimer = null;
+      pushToDrive();
+    }, 1500);
+  }
+
+  async function pushToDrive({ force = false } = {}) {
+    if (!window.DriveSync || !DriveSync.hasFile()) return;
+    driveSyncBusy = true;
+    renderDriveSyncBar();
+    try {
+      const result = await DriveSync.push(driveSnapshot(), { force });
+      if (result.ok) {
+        driveStatusMessage = `Synced to Drive at ${new Date(result.modifiedTime).toLocaleTimeString()}.`;
+      } else if (result.reason === "conflict") {
+        const overwrite = confirm("This file changed on Google Drive since your last sync (likely someone else's edit). Overwrite it with your local changes?");
+        if (overwrite) {
+          await pushToDrive({ force: true });
+          return;
+        }
+        driveStatusMessage = "Push cancelled - pull the latest version before saving again.";
+      }
+    } catch (error) {
+      driveStatusMessage = `Drive sync error: ${error.message}`;
+    } finally {
+      driveSyncBusy = false;
+      renderDriveSyncBar();
+    }
+  }
+
+  async function pullFromDrive({ silent = false } = {}) {
+    if (!window.DriveSync || !DriveSync.hasFile()) return;
+    driveSyncBusy = true;
+    renderDriveSyncBar();
+    try {
+      const result = await DriveSync.pull();
+      if (result) {
+        applyDriveSnapshot(result.data);
+        driveStatusMessage = `Loaded from Drive (${result.fileName || "shared file"}).`;
+      }
+    } catch (error) {
+      if (!silent) driveStatusMessage = `Drive sync error: ${error.message}`;
+    } finally {
+      driveSyncBusy = false;
+      renderDriveSyncBar();
+    }
+  }
+
+  async function connectDrive() {
+    driveSyncBusy = true;
+    renderDriveSyncBar();
+    try {
+      await DriveSync.connect();
+      driveStatusMessage = "Connected to Google. Create a new shared file or open an existing one.";
+    } catch (error) {
+      driveStatusMessage = `Could not connect: ${error.message}`;
+    } finally {
+      driveSyncBusy = false;
+      renderDriveSyncBar();
+    }
+  }
+
+  async function createDriveFile() {
+    driveSyncBusy = true;
+    renderDriveSyncBar();
+    try {
+      const result = await DriveSync.createFile(driveSnapshot());
+      driveStatusMessage = `Created "${result.name}" in Drive. Share it with your collaborator from Drive itself, then have them "Open Existing File" here.`;
+    } catch (error) {
+      driveStatusMessage = `Could not create file: ${error.message}`;
+    } finally {
+      driveSyncBusy = false;
+      renderDriveSyncBar();
+    }
+  }
+
+  async function openExistingDriveFile() {
+    driveSyncBusy = true;
+    renderDriveSyncBar();
+    try {
+      const picked = await DriveSync.pickExistingFile();
+      if (picked) {
+        driveStatusMessage = `Connected to "${picked.name}". Pulling latest data...`;
+        renderDriveSyncBar();
+        await pullFromDrive();
+      }
+    } catch (error) {
+      driveStatusMessage = `Could not open file: ${error.message}`;
+    } finally {
+      driveSyncBusy = false;
+      renderDriveSyncBar();
+    }
+  }
+
+  function disconnectDrive() {
+    if (!confirm("Disconnect this browser from Google Drive sync? Your local data stays intact; you'll need to reconnect and reselect the file to sync again.")) return;
+    DriveSync.disconnect();
+    DriveSync.forgetFile();
+    driveStatusMessage = "Disconnected from Google Drive.";
+    renderDriveSyncBar();
+  }
+
+  function renderDriveSyncBar() {
+    const bar = $("driveSyncBar");
+    if (!bar) return;
+    if (!window.DriveSync || !DriveSync.isConfigured()) {
+      bar.innerHTML = `<p class="muted drive-sync-note">Google Drive sync is not configured yet. Add your OAuth Client ID and API key to src/drive-config.js to enable shared, cross-device saving.</p>`;
+      return;
+    }
+    const status = DriveSync.getStatus();
+    const busyAttr = driveSyncBusy ? "disabled" : "";
+    const actions = [];
+    if (!status.connected) {
+      actions.push(`<button id="driveConnectBtn" type="button" ${busyAttr}>Connect Google Drive</button>`);
+    } else if (!status.fileId) {
+      actions.push(`<button id="driveCreateBtn" type="button" ${busyAttr}>Create Shared File</button>`);
+      actions.push(`<button id="driveOpenBtn" type="button" class="secondary" ${busyAttr}>Open Existing File</button>`);
+    } else {
+      actions.push(`<button id="driveSyncNowBtn" type="button" ${busyAttr}>Sync Now</button>`);
+      actions.push(`<button id="driveOpenBtn" type="button" class="secondary" ${busyAttr}>Switch File</button>`);
+      actions.push(`<button id="driveDisconnectBtn" type="button" class="secondary" ${busyAttr}>Disconnect</button>`);
+    }
+    const fileNote = status.fileId ? `Connected file: ${status.fileName || status.fileId}` : "Not connected to a file yet.";
+    bar.innerHTML = `
+      <div class="drive-sync-status">
+        <strong>${status.connected ? "Signed in to Google" : "Not signed in"}</strong>
+        <span>${escapeHtml(fileNote)}</span>
+        ${driveStatusMessage ? `<span class="drive-sync-message">${escapeHtml(driveStatusMessage)}</span>` : ""}
+      </div>
+      <div class="drive-sync-actions">${actions.join("")}</div>
+    `;
+    if ($("driveConnectBtn")) $("driveConnectBtn").addEventListener("click", connectDrive);
+    if ($("driveCreateBtn")) $("driveCreateBtn").addEventListener("click", createDriveFile);
+    if ($("driveOpenBtn")) $("driveOpenBtn").addEventListener("click", openExistingDriveFile);
+    if ($("driveSyncNowBtn")) $("driveSyncNowBtn").addEventListener("click", () => pushToDrive());
+    if ($("driveDisconnectBtn")) $("driveDisconnectBtn").addEventListener("click", disconnectDrive);
+  }
+
   function bindStaticEvents() {
     $("setupForm").addEventListener("submit", submitSetup);
     $("scenarioSelect").addEventListener("change", (event) => {
@@ -1727,6 +2325,7 @@
       if (!confirm("Revert all current edits and scenario events?")) return;
       revertAllChanges();
     });
+    $("addCompanyBtn").addEventListener("click", addCompany);
     $("companySearch").addEventListener("input", renderCompanyList);
     document.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", () => {
@@ -1767,6 +2366,17 @@
       const revertKey = event.target.dataset.revertChange;
       if (revertKey) {
         revertChange(revertKey);
+        return;
+      }
+      const editTrancheId = event.target.dataset.editTranche;
+      if (editTrancheId) {
+        editingTrancheId = editTrancheId;
+        renderCompanyDetail();
+        return;
+      }
+      const deleteTrancheId = event.target.dataset.deleteTranche;
+      if (deleteTrancheId) {
+        deleteTranche(selectedCompany(), deleteTrancheId);
         return;
       }
       const id = event.target.dataset.deleteEvent;
@@ -1820,6 +2430,7 @@
     renderAssumptions();
     renderViewTabs();
     renderScenarioSelect();
+    renderDriveSyncBar();
     renderDashboard();
     renderChangeSummary();
     renderCompanyList();
@@ -1858,4 +2469,11 @@
 
   bindStaticEvents();
   render();
+
+  if (window.DriveSync && DriveSync.isConfigured() && DriveSync.hasFile()) {
+    DriveSync.silentReconnect().then((token) => {
+      if (token) return pullFromDrive({ silent: true });
+      renderDriveSyncBar();
+    });
+  }
 })();
