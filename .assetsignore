@@ -1,0 +1,11 @@
+node_modules
+.git
+.wrangler
+tests
+package.json
+package-lock.json
+bun.lock
+bun.lockb
+wrangler.jsonc
+.assetsignore
+README.md
