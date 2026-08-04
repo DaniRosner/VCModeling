@@ -2,9 +2,13 @@ const fs = require("fs");
 const vm = require("vm");
 const assert = require("assert");
 
+// This suite validates real sourced portfolio data (SAFE terms, cap tables, etc.)
+// against the fund's actual legal documents, so it reads the real seed data from
+// a backup kept outside the project (see README.md) rather than from src/data.js,
+// which only ships a generic placeholder now that Google Drive is the source of truth.
 const context = { window: {}, Intl, console };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync("src/data.js", "utf8"), context);
+vm.runInContext(fs.readFileSync("../VCModeling-seed-data-backup.js", "utf8"), context);
 vm.runInContext(fs.readFileSync("src/model.js", "utf8"), context);
 
 const { SEED_PORTFOLIO, VCModel } = context.window;
