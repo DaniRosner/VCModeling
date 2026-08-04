@@ -157,8 +157,7 @@
       try {
         const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
           .setMimeTypes(FILE_MIME)
-          .setIncludeFolders(true)
-          .setOwnedByMe(false);
+          .setIncludeFolders(true);
         const picker = new google.picker.PickerBuilder()
           .setOAuthToken(accessToken)
           .setDeveloperKey(config().apiKey)
