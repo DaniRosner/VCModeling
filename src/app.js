@@ -31,6 +31,7 @@
   let drivePushTimer = null;
   let driveSyncBusy = false;
   let suppressDrivePush = false;
+  let driveUnlocked = false;
 
   const $ = (id) => document.getElementById(id);
 
@@ -2159,7 +2160,6 @@
     } finally {
       suppressDrivePush = false;
     }
-    render();
   }
 
   function scheduleDrivePush() {
@@ -2172,10 +2172,32 @@
     }, 1500);
   }
 
+  function setAppVisible(visible) {
+    $("app").classList.toggle("hidden", !visible);
+  }
+
+  function unlockApp() {
+    driveUnlocked = true;
+    setAppVisible(true);
+    renderDriveGate();
+    render();
+  }
+
+  function lockApp() {
+    driveUnlocked = false;
+    setAppVisible(false);
+    renderDriveGate();
+  }
+
+  function renderDriveUI() {
+    renderDriveGate();
+    if (driveUnlocked) renderDriveSyncBar();
+  }
+
   async function pushToDrive({ force = false } = {}) {
     if (!window.DriveSync || !DriveSync.hasFile()) return;
     driveSyncBusy = true;
-    renderDriveSyncBar();
+    renderDriveUI();
     try {
       const result = await DriveSync.push(driveSnapshot(), { force });
       if (result.ok) {
@@ -2192,116 +2214,139 @@
       driveStatusMessage = `Drive sync error: ${error.message}`;
     } finally {
       driveSyncBusy = false;
-      renderDriveSyncBar();
+      renderDriveUI();
     }
   }
 
   async function pullFromDrive({ silent = false } = {}) {
     if (!window.DriveSync || !DriveSync.hasFile()) return;
     driveSyncBusy = true;
-    renderDriveSyncBar();
+    renderDriveUI();
     try {
       const result = await DriveSync.pull();
       if (result) {
         applyDriveSnapshot(result.data);
         driveStatusMessage = `Loaded from Drive (${result.fileName || "shared file"}).`;
+        unlockApp();
       }
     } catch (error) {
       if (!silent) driveStatusMessage = `Drive sync error: ${error.message}`;
     } finally {
       driveSyncBusy = false;
-      renderDriveSyncBar();
+      renderDriveUI();
     }
   }
 
   async function connectDrive() {
     driveSyncBusy = true;
-    renderDriveSyncBar();
+    renderDriveUI();
     try {
       await DriveSync.connect();
       driveStatusMessage = "Connected to Google. Create a new shared file or open an existing one.";
+      if (DriveSync.hasFile()) await pullFromDrive();
     } catch (error) {
       driveStatusMessage = `Could not connect: ${error.message}`;
     } finally {
       driveSyncBusy = false;
-      renderDriveSyncBar();
+      renderDriveUI();
     }
   }
 
   async function createDriveFile() {
     driveSyncBusy = true;
-    renderDriveSyncBar();
+    renderDriveUI();
     try {
       const result = await DriveSync.createFile(driveSnapshot());
       driveStatusMessage = `Created "${result.name}" in Drive. Share it with your collaborator from Drive itself, then have them "Open Existing File" here.`;
+      unlockApp();
     } catch (error) {
       driveStatusMessage = `Could not create file: ${error.message}`;
     } finally {
       driveSyncBusy = false;
-      renderDriveSyncBar();
+      renderDriveUI();
     }
   }
 
   async function openExistingDriveFile() {
     driveSyncBusy = true;
-    renderDriveSyncBar();
+    renderDriveUI();
     try {
       const picked = await DriveSync.pickExistingFile();
       if (picked) {
         driveStatusMessage = `Connected to "${picked.name}". Pulling latest data...`;
-        renderDriveSyncBar();
+        renderDriveUI();
         await pullFromDrive();
       }
     } catch (error) {
       driveStatusMessage = `Could not open file: ${error.message}`;
     } finally {
       driveSyncBusy = false;
-      renderDriveSyncBar();
+      renderDriveUI();
     }
   }
 
-  function disconnectDrive() {
-    if (!confirm("Disconnect this browser from Google Drive sync? Your local data stays intact; you'll need to reconnect and reselect the file to sync again.")) return;
+  function signOutDrive() {
+    if (!confirm("Sign out of Google Drive? You'll need to sign in again to see or edit the portfolio.")) return;
     DriveSync.disconnect();
-    DriveSync.forgetFile();
-    driveStatusMessage = "Disconnected from Google Drive.";
-    renderDriveSyncBar();
+    driveStatusMessage = "Signed out of Google Drive.";
+    lockApp();
   }
 
-  function renderDriveSyncBar() {
-    const bar = $("driveSyncBar");
-    if (!bar) return;
+  function renderDriveGate() {
+    const gate = $("driveGate");
+    if (!gate) return;
+    if (driveUnlocked) {
+      gate.classList.add("hidden");
+      return;
+    }
+    gate.classList.remove("hidden");
+    const body = $("driveGateBody");
     if (!window.DriveSync || !DriveSync.isConfigured()) {
-      bar.innerHTML = `<p class="muted drive-sync-note">Google Drive sync is not configured yet. Add your OAuth Client ID and API key to src/drive-config.js to enable shared, cross-device saving.</p>`;
+      body.innerHTML = `<p class="muted">Google Drive sync is not configured for this deployment. Nothing can load until it is - add an OAuth Client ID and API key to src/drive-config.js.</p>`;
       return;
     }
     const status = DriveSync.getStatus();
     const busyAttr = driveSyncBusy ? "disabled" : "";
     const actions = [];
     if (!status.connected) {
-      actions.push(`<button id="driveConnectBtn" type="button" ${busyAttr}>Connect Google Drive</button>`);
-    } else if (!status.fileId) {
-      actions.push(`<button id="driveCreateBtn" type="button" ${busyAttr}>Create Shared File</button>`);
-      actions.push(`<button id="driveOpenBtn" type="button" class="secondary" ${busyAttr}>Open Existing File</button>`);
+      actions.push(`<button id="driveGateConnectBtn" type="button" ${busyAttr}>Connect Google Drive</button>`);
     } else {
-      actions.push(`<button id="driveSyncNowBtn" type="button" ${busyAttr}>Sync Now</button>`);
-      actions.push(`<button id="driveOpenBtn" type="button" class="secondary" ${busyAttr}>Switch File</button>`);
-      actions.push(`<button id="driveDisconnectBtn" type="button" class="secondary" ${busyAttr}>Disconnect</button>`);
+      actions.push(`<button id="driveGateCreateBtn" type="button" ${busyAttr}>Create Shared File</button>`);
+      actions.push(`<button id="driveGateOpenBtn" type="button" class="secondary" ${busyAttr}>Open Existing File</button>`);
     }
-    const fileNote = status.fileId ? `Connected file: ${status.fileName || status.fileId}` : "Not connected to a file yet.";
+    body.innerHTML = `
+      <div class="drive-sync-actions">${actions.join("")}</div>
+      ${driveStatusMessage ? `<p class="drive-sync-message">${escapeHtml(driveStatusMessage)}</p>` : ""}
+    `;
+    if ($("driveGateConnectBtn")) $("driveGateConnectBtn").addEventListener("click", connectDrive);
+    if ($("driveGateCreateBtn")) $("driveGateCreateBtn").addEventListener("click", createDriveFile);
+    if ($("driveGateOpenBtn")) $("driveGateOpenBtn").addEventListener("click", openExistingDriveFile);
+  }
+
+  function renderDriveSyncBar() {
+    const bar = $("driveSyncBar");
+    if (!bar) return;
+    if (!driveUnlocked || !window.DriveSync) {
+      bar.innerHTML = "";
+      return;
+    }
+    const status = DriveSync.getStatus();
+    const busyAttr = driveSyncBusy ? "disabled" : "";
     bar.innerHTML = `
       <div class="drive-sync-status">
-        <strong>${status.connected ? "Signed in to Google" : "Not signed in"}</strong>
-        <span>${escapeHtml(fileNote)}</span>
+        <strong>Signed in to Google</strong>
+        <span>Connected file: ${escapeHtml(status.fileName || status.fileId || "")}</span>
         ${driveStatusMessage ? `<span class="drive-sync-message">${escapeHtml(driveStatusMessage)}</span>` : ""}
       </div>
-      <div class="drive-sync-actions">${actions.join("")}</div>
+      <div class="drive-sync-actions">
+        <button id="driveSyncNowBtn" type="button" ${busyAttr}>Sync Now</button>
+        <button id="driveOpenBtn" type="button" class="secondary" ${busyAttr}>Switch File</button>
+        <button id="driveSignOutBtn" type="button" class="secondary" ${busyAttr}>Sign Out</button>
+      </div>
     `;
-    if ($("driveConnectBtn")) $("driveConnectBtn").addEventListener("click", connectDrive);
-    if ($("driveCreateBtn")) $("driveCreateBtn").addEventListener("click", createDriveFile);
-    if ($("driveOpenBtn")) $("driveOpenBtn").addEventListener("click", openExistingDriveFile);
-    if ($("driveSyncNowBtn")) $("driveSyncNowBtn").addEventListener("click", () => pushToDrive());
-    if ($("driveDisconnectBtn")) $("driveDisconnectBtn").addEventListener("click", disconnectDrive);
+    $("driveSyncNowBtn").addEventListener("click", () => pushToDrive());
+    $("driveOpenBtn").addEventListener("click", openExistingDriveFile);
+    $("driveSignOutBtn").addEventListener("click", signOutDrive);
   }
 
   function bindStaticEvents() {
@@ -2468,12 +2513,13 @@
   }
 
   bindStaticEvents();
-  render();
+  setAppVisible(false);
+  renderDriveGate();
 
   if (window.DriveSync && DriveSync.isConfigured() && DriveSync.hasFile()) {
     DriveSync.silentReconnect().then((token) => {
       if (token) return pullFromDrive({ silent: true });
-      renderDriveSyncBar();
+      renderDriveGate();
     });
   }
 })();

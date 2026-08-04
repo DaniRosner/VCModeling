@@ -451,6 +451,19 @@ body.setup-active main {
   background: var(--surface);
 }
 
+.drive-gate-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px;
+}
+
+.drive-gate-body .drive-sync-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
