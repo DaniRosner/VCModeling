@@ -35,12 +35,26 @@
 
   const $ = (id) => document.getElementById(id);
 
-  const baselineAssumptions = normalizeAssumptions(model.clone(seed.assumptions));
-  const baselineAssumptionOrigins = {};
-  const baselineCompanyFieldOrigins = {};
-  const baselineCompanies = model.clone(seed.companies);
+  // Untouched, never-reassigned snapshot of the placeholder shipped in data.js -
+  // used only to wipe local data back to a genuinely empty state on sign out.
+  // Distinct from baseline* below, which tracks last-known-Drive-synced state
+  // for change-tracking/revert and gets reassigned every time real data loads.
+  const factoryDefaultAssumptions = normalizeAssumptions(model.clone(seed.assumptions));
+  const factoryDefaultCompanies = model.clone(seed.companies);
+
+  let baselineAssumptions = model.clone(factoryDefaultAssumptions);
+  let baselineAssumptionOrigins = {};
+  let baselineCompanyFieldOrigins = {};
+  let baselineCompanies = model.clone(factoryDefaultCompanies);
   applyPersistedCompanies();
   applySetupInputs();
+
+  function captureBaseline() {
+    baselineAssumptions = model.clone(assumptions);
+    baselineAssumptionOrigins = model.clone(assumptionOrigins);
+    baselineCompanyFieldOrigins = model.clone(companyFieldOrigins);
+    baselineCompanies = model.clone(seed.companies);
+  }
 
   function prepareStorage() {
     if (localStorage.getItem(storageVersionKey) === appStorageVersion) return;
@@ -2179,6 +2193,7 @@
   function unlockApp() {
     driveUnlocked = true;
     setAppVisible(true);
+    captureBaseline();
     renderDriveGate();
     render();
   }
@@ -2202,6 +2217,8 @@
       const result = await DriveSync.push(driveSnapshot(), { force });
       if (result.ok) {
         driveStatusMessage = `Synced to Drive at ${new Date(result.modifiedTime).toLocaleTimeString()}.`;
+        captureBaseline();
+        renderChangeSummary();
       } else if (result.reason === "conflict") {
         const overwrite = confirm("This file changed on Google Drive since your last sync (likely someone else's edit). Overwrite it with your local changes?");
         if (overwrite) {
@@ -2288,17 +2305,18 @@
   function clearLocalPortfolioData() {
     [storageKey, companiesKey, assumptionsKey, assumptionOriginsKey, companyFieldOriginsKey, setupInputsKey, setupCompleteKey, masterColumnsKey]
       .forEach((key) => localStorage.removeItem(key));
-    seed.companies.splice(0, seed.companies.length, ...model.clone(baselineCompanies));
+    seed.companies.splice(0, seed.companies.length, ...model.clone(factoryDefaultCompanies));
     scenarios = [{ id: "current", name: "Current book", events: {} }];
     activeScenarioId = scenarios[0].id;
     Object.keys(assumptions).forEach((key) => delete assumptions[key]);
-    Object.assign(assumptions, model.clone(baselineAssumptions));
+    Object.assign(assumptions, model.clone(factoryDefaultAssumptions));
     assumptionOrigins = {};
     companyFieldOrigins = {};
     setupInputs = { assumptions: {}, companies: {}, tranches: {} };
     visibleMasterColumns = defaultMasterColumnIds();
     editedMasterCells.clear();
     selectedCompanyId = seed.companies[0].id;
+    captureBaseline();
   }
 
   function signOutDrive() {
