@@ -22,11 +22,8 @@
     return pct(company.ownershipPct);
   }
 
-  function valueForSafe(tranche, mode) {
-    if (mode !== "cap" || !tranche.valuationCap) return tranche.value || tranche.cost || 0;
-    const base = tranche.cost || 0;
-    const markup = Math.max(1, 12000000 / tranche.valuationCap);
-    return base * markup;
+  function valueForSafe(tranche) {
+    return tranche.value || tranche.cost || 0;
   }
 
   function isAdvisorShare(tranche) {
@@ -34,7 +31,7 @@
   }
 
   function trancheCurrentValue(tranche, assumptions = {}) {
-    if (["safe-post", "safe-pre", "note"].includes(tranche.type)) return valueForSafe(tranche, assumptions.safeMarkMode);
+    if (["safe-post", "safe-pre", "note"].includes(tranche.type)) return valueForSafe(tranche);
     const value = tranche.value || 0;
     return isAdvisorShare(tranche) ? value * 0.8 : value;
   }
@@ -300,8 +297,7 @@
       if (tranche.participation === "full") {
         payout = Math.min(remaining, prefAmount + (tranche.shares || 0) * commonPerShare);
       }
-      const fundShare = (tranche.shares || 0) / Math.max(company.shares || 1, 1);
-      fundPayout += payout * fundShare;
+      fundPayout += payout;
       remaining -= Math.min(remaining, payout);
     });
     const residualPerShare = remaining / totalShares;

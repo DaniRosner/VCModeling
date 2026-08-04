@@ -1116,14 +1116,7 @@
 
   function buildSetupFields() {
     const fields = [
-      setupField("capitalCalled", "Capital called", "number", { kind: "assumption", key: "capitalCalled" }, "Used only for net metrics. You can leave this blank and use the default.", { priority: "Fund-level policy" }),
-      setupField("safeMarkMode", "SAFE / Note valuation policy", "select", { kind: "assumption", key: "safeMarkMode" }, "This is a model policy choice.", {
-        priority: "Fund-level policy",
-        choices: [
-          ["cost", "Hold at cost"],
-          ["cap", "Mark to cap"]
-        ]
-      })
+      setupField("capitalCalled", "Capital called", "number", { kind: "assumption", key: "capitalCalled" }, "Used only for net metrics. You can leave this blank and use the default.", { priority: "Fund-level policy" })
     ];
 
     seed.companies.forEach((company) => {
@@ -2327,6 +2320,22 @@
     lockApp();
   }
 
+  const CF_TEAM_LOGOUT_URL = "https://still-shape-d980.cloudflareaccess.com/cdn-cgi/access/logout";
+
+  function signOutCloudflare() {
+    if (!confirm("Sign out of Cloudflare Access? This ends your session for this entire site - you'll need to re-authenticate (email code or Cloudflare login) to get back in.")) return;
+    // Cloudflare Access keeps two separate sessions: a per-app cookie (cleared by
+    // /cdn-cgi/access/logout on the app's own domain) and a team-wide "already verified"
+    // session on the *.cloudflareaccess.com domain. Clearing only the app-level one lets
+    // Access silently re-issue a token without prompting, so both must be cleared to force
+    // a real re-login (e.g. to test as a different email).
+    fetch(CF_TEAM_LOGOUT_URL, { mode: "no-cors", credentials: "include" })
+      .catch(() => {})
+      .finally(() => {
+        window.location.href = "/cdn-cgi/access/logout";
+      });
+  }
+
   function renderDriveGate() {
     const gate = $("driveGate");
     if (!gate) return;
@@ -2337,7 +2346,11 @@
     gate.classList.remove("hidden");
     const body = $("driveGateBody");
     if (!window.DriveSync || !DriveSync.isConfigured()) {
-      body.innerHTML = `<p class="muted">Google Drive sync is not configured for this deployment. Nothing can load until it is - add an OAuth Client ID and API key to src/drive-config.js.</p>`;
+      body.innerHTML = `
+        <p class="muted">Google Drive sync is not configured for this deployment. Nothing can load until it is - add an OAuth Client ID and API key to src/drive-config.js.</p>
+        <p class="drive-gate-footer"><button id="driveGateCloudflareSignOutBtn" type="button" class="secondary">Sign Out of Cloudflare</button></p>
+      `;
+      $("driveGateCloudflareSignOutBtn").addEventListener("click", signOutCloudflare);
       return;
     }
     const status = DriveSync.getStatus();
@@ -2352,10 +2365,12 @@
     body.innerHTML = `
       <div class="drive-sync-actions">${actions.join("")}</div>
       ${driveStatusMessage ? `<p class="drive-sync-message">${escapeHtml(driveStatusMessage)}</p>` : ""}
+      <p class="drive-gate-footer"><button id="driveGateCloudflareSignOutBtn" type="button" class="secondary">Sign Out of Cloudflare</button></p>
     `;
     if ($("driveGateConnectBtn")) $("driveGateConnectBtn").addEventListener("click", connectDrive);
     if ($("driveGateCreateBtn")) $("driveGateCreateBtn").addEventListener("click", createDriveFile);
     if ($("driveGateOpenBtn")) $("driveGateOpenBtn").addEventListener("click", openExistingDriveFile);
+    $("driveGateCloudflareSignOutBtn").addEventListener("click", signOutCloudflare);
   }
 
   function renderDriveSyncBar() {
@@ -2376,12 +2391,14 @@
       <div class="drive-sync-actions">
         <button id="driveSyncNowBtn" type="button" ${busyAttr}>Sync Now</button>
         <button id="driveOpenBtn" type="button" class="secondary" ${busyAttr}>Switch File</button>
-        <button id="driveSignOutBtn" type="button" class="secondary" ${busyAttr}>Sign Out</button>
+        <button id="driveSignOutBtn" type="button" class="secondary" ${busyAttr}>Sign Out of Drive</button>
+        <button id="cloudflareSignOutBtn" type="button" class="secondary">Sign Out of Cloudflare</button>
       </div>
     `;
     $("driveSyncNowBtn").addEventListener("click", () => pushToDrive());
     $("driveOpenBtn").addEventListener("click", openExistingDriveFile);
     $("driveSignOutBtn").addEventListener("click", signOutDrive);
+    $("cloudflareSignOutBtn").addEventListener("click", signOutCloudflare);
   }
 
   function bindStaticEvents() {
