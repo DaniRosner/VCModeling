@@ -204,6 +204,27 @@
     return response.json();
   }
 
+  async function listRevisions(fileId) {
+    const response = await driveFetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/revisions?fields=revisions(id,modifiedTime,size)`
+    );
+    const data = await response.json();
+    return data.revisions || [];
+  }
+
+  async function readRevisionContent(fileId, revisionId) {
+    const response = await driveFetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/revisions/${revisionId}?alt=media`
+    );
+    return response.json();
+  }
+
+  async function restoreRevision(fileId, revisionId) {
+    const content = await readRevisionContent(fileId, revisionId);
+    const written = await writeContent(fileId, content);
+    return { data: content, modifiedTime: written.modifiedTime };
+  }
+
   async function pull() {
     const fileId = getFileId();
     if (!fileId) return null;
@@ -254,6 +275,9 @@
     pickExistingFile,
     pull,
     push,
-    getStatus
+    getStatus,
+    listRevisions,
+    readRevisionContent,
+    restoreRevision
   };
 })();
