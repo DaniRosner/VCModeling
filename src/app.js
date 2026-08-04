@@ -2285,9 +2285,26 @@
     }
   }
 
+  function clearLocalPortfolioData() {
+    [storageKey, companiesKey, assumptionsKey, assumptionOriginsKey, companyFieldOriginsKey, setupInputsKey, setupCompleteKey, masterColumnsKey]
+      .forEach((key) => localStorage.removeItem(key));
+    seed.companies.splice(0, seed.companies.length, ...model.clone(baselineCompanies));
+    scenarios = [{ id: "current", name: "Current book", events: {} }];
+    activeScenarioId = scenarios[0].id;
+    Object.keys(assumptions).forEach((key) => delete assumptions[key]);
+    Object.assign(assumptions, model.clone(baselineAssumptions));
+    assumptionOrigins = {};
+    companyFieldOrigins = {};
+    setupInputs = { assumptions: {}, companies: {}, tranches: {} };
+    visibleMasterColumns = defaultMasterColumnIds();
+    editedMasterCells.clear();
+    selectedCompanyId = seed.companies[0].id;
+  }
+
   function signOutDrive() {
-    if (!confirm("Sign out of Google Drive? You'll need to sign in again to see or edit the portfolio.")) return;
+    if (!confirm("Sign out of Google Drive? This also clears any portfolio data cached in this browser - you'll need to sign in and reconnect to see or edit anything again.")) return;
     DriveSync.disconnect();
+    clearLocalPortfolioData();
     driveStatusMessage = "Signed out of Google Drive.";
     lockApp();
   }
