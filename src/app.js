@@ -2124,7 +2124,6 @@
       savedAt: new Date().toISOString(),
       companies: seed.companies,
       scenarios,
-      activeScenarioId,
       assumptions,
       assumptionOrigins,
       companyFieldOrigins,
@@ -2146,9 +2145,10 @@
         scenarios = model.clone(snapshot.scenarios);
         saveScenarios();
       }
-      if (snapshot.activeScenarioId && scenarios.some((scenario) => scenario.id === snapshot.activeScenarioId)) {
-        activeScenarioId = snapshot.activeScenarioId;
-      }
+      // Always land on "Current book" when loading, regardless of which scenario
+      // was active when this was last saved - this is a shared file, so nobody
+      // should get dropped into someone else's hypothetical scenario tab.
+      activeScenarioId = scenarios[0].id;
       if (snapshot.assumptions) {
         Object.keys(assumptions).forEach((key) => delete assumptions[key]);
         Object.assign(assumptions, model.clone(snapshot.assumptions));
